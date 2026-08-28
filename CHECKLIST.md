@@ -2,18 +2,20 @@
 
 > Mỗi `[x]` PHẢI có bằng chứng (log/output/link) đi kèm. Không đánh dấu `[x]` vì "AI nghĩ rằng đã làm".
 
-## Task hiện tại: TASK-001 — `domain/validators.py` (V-1 → V-5)
+## Task hiện tại: TASK-002 — `domain/compiler.py`
 
-- [x] Requirement satisfied — 5 phép V-1..V-5 đủ, đúng docstring gốc (không tự đổi thiết kế)
-- [x] SPEC satisfied — SPEC.md chưa có acceptance criteria riêng cho validators; đối chiếu docstring gốc (nguồn sự thật cụ thể hơn cho file này)
-- [x] Code implemented — `backend/app/domain/validators.py`
-- [x] Unit tests passed — evidence: `pytest tests/unit/test_validators.py -v` → `17 passed in 0.27s` (dán đầy đủ trong `IMPLEMENTATION_PLAN.md` mục Completed)
-- [ ] Integration tests passed — không áp dụng (domain/ thuần, không có integration test cho module này)
-- [x] Build passed — evidence: `npm typecheck`/`npm build` (frontend) đều PASS qua `scripts/verify`; không có bước build riêng cho `validators.py`
-- [x] Security checked — evidence: file không xử lý input người dùng chưa qua Pydantic validate, không I/O ngoài `os.path.isdir()` (đọc, không ghi); không phát hiện vấn đề
-- [x] No secrets committed — evidence: không file `.env`/credential nào bị đổi trong task này
-- [x] Architecture respected — evidence: không import từ `api/`/`adapters/`/`workers/` (kiểm tra bằng đọc lại import block của `validators.py`); `mypy`/`ruff` PASS
-- [x] No forbidden changes — evidence: chỉ đổi 3 file (`validators.py`, `test_validators.py`, `pyproject.toml` — thêm 1 dòng `pythonpath`), không đổi `SPEC.md`/`ARCHITECTURE.md`/scope
-- [x] Documentation updated — `IMPLEMENTATION_PLAN.md` cập nhật; docstring `validators.py` đã bỏ phần "Cần hiện thực" theo `AGENTS.md` Mục 5
+- [x] Requirement satisfied — luồng classify_intent → extract_params → validate_spec, retry tối đa 3 lần, đúng ADR-002
+- [x] SPEC satisfied — đối chiếu docstring gốc (nguồn cụ thể hơn SPEC.md cho file này)
+- [x] Code implemented — `backend/app/domain/compiler.py` (Cline viết bản đầu, Claude sửa 1 bug thật khi review)
+- [x] Unit tests passed — evidence: `pytest tests/unit/test_compiler.py tests/unit/test_validators.py -v` → `31 passed in 0.39s`
+- [ ] Integration tests passed — không áp dụng (domain/ thuần, chưa nối LLM thật)
+- [x] Build passed — `npm typecheck`/`npm build` PASS qua `scripts/verify`
+- [x] Security checked — evidence: không đọc/in secret ra output (đã tự kiểm khi đọc `providers.json` để lấy tên provider); test không gọi mạng thật
+- [x] No secrets committed — evidence: `scripts/verify` mục "Secret scan (diff)" → PASS
+- [x] Architecture respected — evidence: `git diff --stat` xác nhận không đụng `schemas/workflow_spec.py`/`domain/validators.py`/`domain/qc_rules.py`/`domain/state.py`; không import từ `api/`/`adapters/`/`workers/`; `mypy`/`ruff` PASS
+- [x] No forbidden changes — chỉ đổi `compiler.py` + `test_compiler.py` + `IMPLEMENTATION_PLAN.md`; không đổi `SPEC.md`/`ARCHITECTURE.md`
+- [x] Documentation updated — `IMPLEMENTATION_PLAN.md` cập nhật đầy đủ evidence + bug đã sửa
 
-**Lưu ý:** `scripts/verify` toàn dự án hiện FAIL vì lint debt có sẵn ở 6 file khác (không thuộc TASK-001) — xem `IMPLEMENTATION_PLAN.md`. Task riêng đã được tách (`task_b232c26f`).
+**Bug tìm thấy khi review (đã sửa, không phải task riêng):** `compile()` trả `(None, [])` khi cả 3 lần đều lỗi cấu trúc Pydantic — đã thêm `SpecError(rule="COMPILE-2")` + test hồi quy.
+
+**Lưu ý còn tồn:** `scripts/verify` toàn dự án vẫn FAIL vì lint debt có sẵn (task `task_b232c26f`, chưa chạy) — không liên quan TASK-002.
