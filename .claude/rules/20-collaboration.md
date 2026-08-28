@@ -93,6 +93,20 @@ dùng Get-Content/cat/type qua run_commands cho việc đọc nội dung file. C
 dùng run_commands cho lệnh thật sự cần chạy (test/lint/liệt kê thư mục)."*
 Đã verify: sau khi thêm dòng này, task chạy lại thành công không còn lỗi.
 
+### Task lớn/phức tạp: ghi khối task vào IMPLEMENTATION_PLAN.md TRƯỚC khi gọi cline (bài học 2026-08-28)
+
+Với task đơn giản, truyền thẳng nội dung khối task làm đối số dòng lệnh
+(`cline -P ... "TASK-<id>\n\nGoal:...`) là đủ. Nhưng với task LỚN/phức tạp
+(nhiều file, cần đặc tả dài như lược đồ CSDL) — đã tự gặp lỗi thật: Cline
+không tìm thấy khối task trong `IMPLEMENTATION_PLAN.md` (vì Claude chỉ truyền
+qua prompt, không ghi vào file), tự lục lọi tìm kiếm, tốn phần lớn ngân sách
+thời gian trước khi bắt đầu code thật, dẫn tới timeout.
+
+**Với task lớn:** ghi khối task đầy đủ vào `IMPLEMENTATION_PLAN.md` (mục
+`Status: ASSIGNED`, đúng mẫu ở trên) TRƯỚC, rồi mới gọi `cline` với prompt
+NGẮN dạng "Đọc IMPLEMENTATION_PLAN.md, làm task đang ASSIGNED" — khớp đúng
+hành vi `.clinerules` Mục 1 đã mô tả sẵn, tránh Cline phải tự đoán chỗ tìm.
+
 ## ⚠️ Giới hạn thật đã kiểm chứng (không phải giả định)
 
 - **Cline hooks không chạy trên Windows** (v3.36+, docs Cline chính thức xác nhận macOS/Linux only). Trên Windows, không dựa vào Cline hook để cưỡng chế — dùng Git pre-commit hook (cross-platform) + Claude Code tự chạy `scripts/verify` khi review.

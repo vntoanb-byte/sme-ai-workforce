@@ -101,8 +101,38 @@
 - Không đụng file ngoài `Allowed files` (đã kiểm `git diff --stat` cho `core/config.py`, `db/*`, `domain/*`, `ports/queue.py`, `adapters/queue_sqlite.py`, `schemas/*`).
 - **Giả định cần Toàn xác nhận (NOTE trong code):** không thêm lớp `"artifacts/"` vào đường dẫn vì `settings.STORAGE_PATH` mặc định đã là `"./data/artifacts"` — tránh trùng lặp `"artifacts/artifacts/..."`.
 
-**Next:**
-- TASK-005: `models/*` (7 file, đang là docstring stub — cần trước khi `services/*`/`api/v1/*` chạy thật được, và trước khi `job_queue`/`succeeded` ở TASK-003 được đối chiếu lại với model ORM thật)
+**Task: TASK-005a — Hiện thực `models/user.py` + `employee.py` + `workflow.py` (9 bảng)**
+
+**Status:** DONE (2026-08-28) — Claude Code tự thiết kế lược đồ đầy đủ 20 bảng/7 file trước (không có "Phụ lục A" trong repo — dựa trên docstring gốc + `frontend/src/api/types.ts`/`mock/data.ts` đã dựng UI thật + đối chiếu ngược `domain/state.py`/`ports/storage.py`/`ports/queue.py` đã xong), Cline CLI viết code nhóm A/B/C theo đúng đặc tả, Claude Code review phát hiện + tự sửa 4 bug thật.
+
+**Completed (TASK-005a):**
+- **Bug hạ tầng phát hiện trước khi bắt đầu (không phải do Cline):** `.gitignore` có dòng `models/` không neo gốc repo — vô tình khớp luôn `backend/app/models/` (source code), khiến TOÀN BỘ model (kể cả bản stub gốc) chưa từng được git track từ đầu dự án. Sửa thành `/models/`.
+- **4 bug thật Claude tự phát hiện + sửa khi review** (Cline hết giờ do lạc hướng tìm "Must pass" trong `IMPLEMENTATION_PLAN.md` — lần này giao task trực tiếp qua prompt, không ghi vào file trước, để lại bài học ở mục Ghi chú bên dưới):
+  1. `Mapped["X" | None]` (quote lẫn với `| None` ngoài quote) → SyntaxError khi SQLAlchemy de-stringify. Sửa thống nhất, sau đó `ruff --fix` chuyển về dạng không quote (`Mapped[X | None]`) — đã tự verify lại bằng pytest trước khi giữ bản ruff, không tin ruff mù quáng.
+  2. `WorkflowEdge.workflow` thiếu `primaryjoin`/`foreign_keys` tường minh (vì `workflow_id` không có `ForeignKey` đơn, chỉ nằm trong FK ghép) — SQLAlchemy không tự suy được join, lỗi `InvalidRequestError` khi mapper configure.
+  3. Insert `workflow_steps` + `workflow_edges` (FK ghép) trong cùng transaction bị SQLite chặn vì thứ tự insert không đảm bảo steps luôn trước edges — sửa bằng `PRAGMA defer_foreign_keys=ON` trong event `begin` của `db/session.py` (hoãn kiểm tra FK tới COMMIT thay vì từng câu lệnh). **Đây là thay đổi hạ tầng ảnh hưởng TOÀN app**, không riêng models — đã re-verify: `/health` PASS, test đồng thời TASK-003 chạy 5 lần liên tiếp vẫn ổn định.
+  4. (Bug ở TEST, không phải schema) WAL snapshot isolation: session đang giữ transaction cũ vẫn thấy dữ liệu "trễ" sau khi 1 session khác COMMIT từ ngoài — sửa bằng `session.rollback()` trước khi đọc lại, không phải lỗi CASCADE/SET NULL (đã tự verify CASCADE/SET NULL hoạt động đúng ở DB bằng script độc lập trước khi kết luận).
+- Thêm import 9 model mới vào `db/base.py` (import vòng với `models/*.py` — đã verify hoạt động đúng bằng `Base.metadata.create_all()` thật, không chỉ đọc code).
+- **Evidence — pytest (toàn bộ, 57 test):**
+  ```
+  tests\unit\test_compiler.py       ..............  [ 24%]
+  tests\unit\test_models_group_a.py .......         [ 36%]
+  tests\unit\test_queue_sqlite.py   ..........      [ 54%]
+  tests\unit\test_storage_local.py  .........       [ 70%]
+  tests\unit\test_validators.py     .................[100%]
+  57 passed in 1.36s
+  ```
+  (test đồng thời TASK-003 riêng chạy lại 5 lần liên tiếp — luôn `10 passed`)
+- **Evidence — ruff:** `All checks passed!` (5 file: 3 model + `db/session.py` + test) — **mypy:** `Success: no issues found in 4 source files`
+- **Evidence — `/health`:** PASS (database/storage/llm đều ok) sau khi sửa `db/session.py` 2 lần trong task này.
+- **Evidence — scripts/verify toàn dự án:** PASS hết trừ ruff (vẫn đúng 41 lỗi debt cũ, không phát sinh mới).
+- **Ghi chú quy trình (bài học, đã cập nhật `.claude/rules/20-collaboration.md`):** giao task trực tiếp qua prompt CLI (không ghi vào `IMPLEMENTATION_PLAN.md` trước) khiến Cline mất nhiều thời gian tìm sai chỗ lệnh "Must pass" — task lớn/phức tạp nên ghi khối task vào `IMPLEMENTATION_PLAN.md` trước khi gọi `cline`, không chỉ truyền qua đối số dòng lệnh.
+
+**Next (TASK-005b — phụ thuộc TASK-005a, đọc lược đồ Nhóm D-G đã soạn sẵn):**
+- `models/run.py` (runs, run_steps, run_logs, job_queue — **job_queue phải khớp CHÍNH XÁC** kiểu cột TEXT mà `adapters/queue_sqlite.py` đã dùng, không tự "sửa cho đúng chuẩn")
+- `models/extraction.py` (extractions, qc_results, human_reviews)
+- `models/artifact.py` (artifacts, documents — `artifacts` phải khớp `ArtifactRef` trong `ports/storage.py`)
+- `models/audit.py` (audit_logs, llm_calls, settings)
 - Sau đó: `services/*` → `api/v1/*` → `tools/*` → `agents/crew.py` (đọc ADR-002 trước) → `workers/*`
 - Cuối cùng: nối frontend vào API thật
 
@@ -129,3 +159,10 @@
 - `backend/app/adapters/storage_local.py` (hiện thực đầy đủ)
 - `backend/tests/unit/test_storage_local.py` (mới, 9 test)
 - `.clinerules` (thêm mục 2.5 — bắt buộc dùng tool đọc file gốc, tránh vỡ encoding qua PowerShell)
+
+**Files affected (TASK-005a):**
+- `.gitignore` (sửa `models/` → `/models/` — bug hạ tầng, không liên quan Cline)
+- `backend/app/db/session.py` (thêm `PRAGMA defer_foreign_keys=ON` — Claude tự sửa khi review)
+- `backend/app/db/base.py` (thêm import 9 model mới)
+- `backend/app/models/user.py`, `employee.py`, `workflow.py` (hiện thực đầy đủ, 9 bảng)
+- `backend/tests/unit/test_models_group_a.py` (mới, 7 test)
