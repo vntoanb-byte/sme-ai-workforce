@@ -34,8 +34,11 @@
 **Current:**
 - TASK-001 xong. `scripts/verify` toàn dự án hiện **FAIL** — nhưng lý do là lint debt có sẵn (mục trên), không phải do TASK-001. Cần Toàn quyết định: xử lý task lint đã tách riêng ngay, hay để dồn xử lý 1 lần sau khi có thêm vài file nữa.
 
-**Next:**
-- TASK-002: `domain/compiler.py` (output là `WorkflowSpec`; cần `adapters/llm_openai_compatible.py` — đã có bản đầu — để chạy thật)
+**Task: TASK-002 — Hiện thực `domain/compiler.py`**
+
+**Status:** IN_PROGRESS (2026-08-28) — giao cho **Cline CLI 2.0** chạy headless thật (`cline -P openai-compatible -c <project> "<task>"`, không phải khối giao task chép tay nữa — xem `.claude/rules/20-collaboration.md` mục "Gọi Cline CLI trực tiếp"). Đã `git init` + commit baseline trước khi chạy, để có safety net revert nếu cần. Đang chờ Cline chạy xong.
+
+**Next (sau TASK-002):**
 - TASK-003: `adapters/queue_sqlite.py` (file quan trọng nhất backend — đọc `docs/DECISIONS.md` ADR-001 trước khi làm)
 - TASK-004: `adapters/storage_local.py`
 - Sau đó: `models/*` (đang là docstring stub, cần trước khi `services/*`/`api/v1/*` chạy thật được) → `services/*` → `api/v1/*` → `tools/*` → `agents/crew.py` (đọc ADR-002 trước) → `workers/*`

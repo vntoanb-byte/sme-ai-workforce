@@ -58,6 +58,25 @@ cline -P <provider-id> -c "<đường dẫn project>" "<prompt task>"
 - Sau khi Cline chạy xong: **Claude Code vẫn phải tự review** — đọc diff file thật (`git diff` nếu project đã là git repo — nên `git init` trước khi giao việc ghi file cho Cline, để có safety net revert được), chạy lại `scripts/verify` thật. Không tin lời Cline tự báo "đã xong" (Claim Gate áp dụng y hệt như với Implementer là người).
 - Chi phí: nếu provider dùng API key trả phí, mỗi lần gọi tốn tiền thật — đây là quyết định Owner (Owner Gate "Chi phí"), không tự ý chọn provider trả phí nếu chưa được xác nhận.
 
+### Luôn mở trực tiếp cho Owner xem — KHÔNG chạy nền âm thầm (bắt buộc, 2026-08-28)
+
+Owner yêu cầu rõ: mọi lần gọi `cline` cho việc thật (không phải câu test vô hại) phải cho Owner **nhìn thấy trực tiếp**, không được chỉ chạy ngầm rồi báo kết quả sau. Trước khi (hoặc ngay sau khi) chạy lệnh `cline` ở chế độ nền, luôn mở thêm 2 cửa sổ:
+
+```bash
+# 1. Mở VS Code vào đúng thư mục project — Owner thấy file thay đổi trực tiếp
+code "<đường dẫn project>"
+```
+
+```powershell
+# 2. Mở một cửa sổ terminal MỚI, tail trực tiếp output của tiến trình cline đang chạy nền.
+# <output-file-path> lấy từ chính kết quả trả về của lệnh chạy nền (Bash/PowerShell tool
+# báo đường dẫn file log khi chạy với run_in_background) — không đoán đường dẫn, đọc từ
+# kết quả thật của lệnh.
+Start-Process powershell -ArgumentList @('-NoExit','-Command',"Get-Content -Path '<output-file-path>' -Wait -Tail 80")
+```
+
+Cửa sổ PowerShell này chỉ **đọc** log (`Get-Content -Wait`), không điều khiển hay can thiệp gì vào tiến trình — an toàn, Owner đóng lúc nào cũng được, không ảnh hưởng `cline` đang chạy. Đây là cách hợp lệ duy nhất để "cho Owner xem trực tiếp" mà không cần điều khiển chuột/bàn phím GUI (thứ Claude Code không có khả năng làm — xem Mục 6 SKILL.md).
+
 ## ⚠️ Giới hạn thật đã kiểm chứng (không phải giả định)
 
 - **Cline hooks không chạy trên Windows** (v3.36+, docs Cline chính thức xác nhận macOS/Linux only). Trên Windows, không dựa vào Cline hook để cưỡng chế — dùng Git pre-commit hook (cross-platform) + Claude Code tự chạy `scripts/verify` khi review.
