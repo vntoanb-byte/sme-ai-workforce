@@ -58,8 +58,30 @@
 - Đã `git init` (project trước đó chưa có git) + commit baseline trước khi chạy Cline, rồi commit riêng kết quả TASK-002 sau khi review xong — có lịch sử revert được.
 - **Quy trình mới ghi vào skill (2026-08-28):** Cline chạy qua CLI headless thật (`cline -P openai-compatible -c <project> "<task>"`), không còn khối giao task chép tay — xem `.claude/rules/20-collaboration.md`. Owner yêu cầu mọi lần chạy việc thật phải mở trực tiếp VS Code + terminal tail log cho Owner xem, không chạy ngầm im lặng — đã ghi thành quy tắc bắt buộc trong cùng file.
 
+**Task: TASK-003 — Hiện thực `ports/queue.py` + `adapters/queue_sqlite.py`**
+
+**Status:** DONE (2026-08-28) — Cline CLI viết, Claude Code review **không phát hiện bug** (khác TASK-002).
+
+**Completed (TASK-003):**
+- **Phát hiện + tự sửa TRƯỚC khi giao Cline:** `db/session.py` (đã làm ở phiên trước) chưa tắt "autobegin" ngầm của driver pysqlite — `BEGIN IMMEDIATE` tường minh (bắt buộc theo ADR-001) sẽ lỗi "cannot start a transaction within a transaction". Đã thêm `isolation_level=None` + event `begin` tuỳ chỉnh, hỗ trợ bật `BEGIN IMMEDIATE` có chọn lọc qua `execution_options(sqlite_begin_immediate=True)` (không áp toàn cục, tránh ảnh hưởng phần khác của app sau này). **Đã tự verify bằng test đa luồng thật** (không chỉ đọc code): 2 connection giả lập 2 worker, connection B bị chặn 0.875s chờ A commit, sau đó thấy đúng giá trị — chứng minh khoá ghi hoạt động đúng. `/health` vẫn PASS sau khi sửa.
+- `SQLiteJobQueue` (implements `JobQueue` Protocol): `enqueue()` dùng chung Session với caller (ADR-001, không tự commit); `claim()` dùng đúng giao thức `BEGIN IMMEDIATE` + SELECT + UPDATE + kiểm `rowcount`; `fail()` có backoff `min(30×2^attempts, 900) + nhiễu ngẫu nhiên`; `reap_expired()` thu hồi lease quá hạn.
+- **Test quan trọng nhất:** `test_claim_concurrent_only_one_worker_wins` — 2 thread thật cùng `claim()` 1 job trên **file SQLite thật** (không dùng `:memory:` vì mỗi connection `:memory:` là DB riêng, không mô phỏng đúng đụng độ), dùng `threading.Barrier` đồng bộ thời điểm bắt đầu — assert đúng 1 worker thắng. **Đã chạy 5 lần liên tiếp, không flaky.**
+- **Evidence — pytest (toàn bộ, 41 test):**
+  ```
+  cd backend && .venv/Scripts/pytest.exe -v
+  tests\unit\test_compiler.py     ..............  [ 34%]
+  tests\unit\test_queue_sqlite.py ..........      [ 58%]
+  tests\unit\test_validators.py   .................[100%]
+  41 passed in 0.79s
+  ```
+  (chạy riêng `test_queue_sqlite.py` 5 lần liên tiếp — luôn `10 passed`, không flaky)
+- **Evidence — ruff:** `ruff check app/ports/queue.py app/adapters/queue_sqlite.py tests/unit/test_queue_sqlite.py` → `All checks passed!`
+- **Evidence — mypy:** `mypy app/ports/queue.py app/adapters/queue_sqlite.py` → `Success: no issues found in 2 source files`
+- **Evidence — scripts/verify toàn dự án:** PASS hết trừ ruff (vẫn đúng 41 lỗi debt cũ, không phát sinh mới).
+- Không đụng `db/session.py`, `db/base.py`, `schemas/workflow_spec.py`, `domain/*`, `ports/llm.py`, `adapters/llm_openai_compatible.py` (đã kiểm bằng `git diff --stat`).
+- **Giả định cần Toàn xác nhận lại (ghi NOTE trong code):** (1) lược đồ cột bảng `job_queue` — suy từ SQL trong docstring gốc, chưa có model ORM/Alembic migration thật; (2) trạng thái `'succeeded'` — không có trong 3 trạng thái docstring gốc liệt kê (pending/claimed/failed), cần thiết để phân biệt "xong" với "chờ"/"lỗi".
+
 **Next:**
-- TASK-003: `adapters/queue_sqlite.py` (file quan trọng nhất backend — đọc `docs/DECISIONS.md` ADR-001 trước khi làm)
 - TASK-004: `adapters/storage_local.py`
 - Sau đó: `models/*` (đang là docstring stub, cần trước khi `services/*`/`api/v1/*` chạy thật được) → `services/*` → `api/v1/*` → `tools/*` → `agents/crew.py` (đọc ADR-002 trước) → `workers/*`
 - Cuối cùng: nối frontend vào API thật
@@ -75,3 +97,9 @@
 **Files affected (TASK-002):**
 - `backend/app/domain/compiler.py` (mới, hiện thực đầy đủ — Cline viết bản đầu, Claude sửa 1 bug)
 - `backend/tests/unit/test_compiler.py` (mới, 14 test)
+
+**Files affected (TASK-003):**
+- `backend/app/db/session.py` (sửa TRƯỚC khi giao Cline — Claude tự làm, hỗ trợ `BEGIN IMMEDIATE`)
+- `backend/app/ports/queue.py` (hiện thực đầy đủ)
+- `backend/app/adapters/queue_sqlite.py` (hiện thực đầy đủ)
+- `backend/tests/unit/test_queue_sqlite.py` (mới, 10 test, có test đồng thời thật)
