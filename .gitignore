@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Node
+node_modules/
+frontend/dist/
+
+# Dữ liệu — TUYỆT ĐỐI không commit
+data/
+models/
+*.db
+*.db-wal
+*.db-shm
+
+# Dữ liệu nghiên cứu chứa thông tin thật
+eval/dataset/
+eval/ground_truth/*.json
+!eval/ground_truth/.gitkeep
+
+# Bí mật
+.env
+*.pem
+*.key
+deploy/certs/
+deploy/bundle/
+
+# Hệ điều hành và IDE
+.DS_Store
+.idea/
+.vscode/settings.json

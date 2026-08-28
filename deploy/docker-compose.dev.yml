@@ -1,0 +1,15 @@
+# Môi trường phát triển: KHÔNG chạy vLLM (máy phát triển chỉ có 6GB VRAM).
+# Mô hình được gọi qua dịch vụ trung gian, cấu hình trong backend/.env
+name: sme-ai-workforce-dev
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    env_file: ../backend/.env
+    volumes:
+      - ../backend:/app
+      - ../data:/data
+    ports: ["8080:8080"]
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload

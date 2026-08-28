@@ -1,0 +1,2 @@
+# Mỗi hoá đơn một tệp <sha256>.json chứa dữ liệu đúng, gán nhãn thủ công hai vòng.
+# KHÔNG commit dữ liệu chưa che thông tin định danh.

@@ -1,0 +1,71 @@
+# .clinerules — Hướng dẫn cho Cline trong project SME AI Workforce
+
+> File này Cline tự đọc mỗi khi mở project (quy ước riêng của Cline — khác `.claude/rules/` mà Claude Code dùng).
+> Claude Code đóng vai Architect/Manager/Reviewer trong project này (xem `AGENTS.md`). **Vai trò của Cline ở đây là Implementer (Worker)** — không phải người quyết định kiến trúc/scope.
+
+## 1. Việc đầu tiên khi bắt đầu bất kỳ phiên nào
+
+1. Đọc `PROJECT.md` → `SPEC.md` → `ARCHITECTURE.md` → `IMPLEMENTATION_PLAN.md` (đúng thứ tự này).
+2. Trong `IMPLEMENTATION_PLAN.md`, tìm task có **`Status: ASSIGNED`** — đó là task Claude (Architect) đã soạn sẵn cho bạn, nằm trong khối ```` ```TASK-<id> ...``` ```` ngay bên dưới.
+3. Nếu không có task nào `Status: ASSIGNED` — **không tự bịa việc để làm**, báo lại cho Owner (Toàn) hỏi task tiếp theo.
+
+## 2. Ngân sách khảo sát trước khi code (Investigation Budget)
+
+Trước khi viết code, khảo sát có giới hạn — không tự do quét cả repo:
+
+1. Đọc các file trong `Allowed files` của task.
+2. Đọc docstring gốc của (các) file mục tiêu — đó đã là spec được chốt, không cần đoán thêm.
+3. Đọc schema/type được tham chiếu trực tiếp (vd. `schemas/workflow_spec.py`).
+4. Đọc phần liên quan trong `ARCHITECTURE.md` (ranh giới module).
+5. Nếu task yêu cầu rõ phải đọc ADR (`docs/DECISIONS.md`) — vd. mọi việc đụng tới `queue_sqlite.py` hoặc `agents/crew.py` theo `AGENTS.md` Mục 5 — thì đọc, việc này **không tính vào ngân sách** ở dưới vì là yêu cầu bắt buộc, không phải khảo sát tự do.
+6. Chỉ search/grep thêm khi thấy thiếu một định nghĩa cụ thể (import không rõ tới đâu, tên hàm chưa biết ở file nào...) — không quét toàn repo "cho chắc".
+
+**Ngân sách mặc định cho phần khảo sát tự do (mục 6):** tối đa 5 lần search, 10 lần đọc file. Nếu thấy cần vượt ngân sách này để hiểu task, dừng lại, ghi rõ lý do và hỏi Owner/Claude thay vì tự tiếp tục mở rộng phạm vi đọc.
+
+Sau khảo sát: tóm tắt ngắn gọn những gì đã hiểu → implement → chạy `Must pass` thật.
+
+## 3. Làm đúng theo khối task, không tự mở rộng
+
+Mỗi khối task có cấu trúc cố định: `Goal / Allowed files / Requirements / Must pass / Do not / Report`.
+
+- **Chỉ sửa file trong `Allowed files`.** Không "tiện tay" sửa thêm file khác dù thấy có vẻ liên quan.
+- **Làm đúng từng gạch đầu dòng trong `Requirements`.** Không tự đổi thiết kế nếu thấy cách khác "hay hơn" — nếu thực sự cần đổi, dừng lại và hỏi Owner trước, đừng tự quyết rồi làm.
+- **Tất cả điều trong `Do not` là giới hạn cứng.** Vi phạm bất kỳ điều nào → dừng lại, không tự "linh động".
+- Nếu yêu cầu không đủ rõ để biết chắc phải làm gì → hỏi Owner, không đoán (đúng nguyên tắc trong `AGENTS.md` Mục 3: "Không giả định / Không bịa đặt").
+
+## 4. Quy tắc kiến trúc bắt buộc (áp dụng cho MỌI task, không chỉ task đang làm)
+
+1. `backend/app/domain/` không được import bất cứ thứ gì từ `api/`, `adapters/`, `workers/`.
+2. Chỉ `core/config.py` được đọc biến môi trường (`os.environ`) — nơi khác import `settings`.
+3. Mọi thay đổi trạng thái (`run.status`, v.v.) phải đi qua `domain/state.py`, không gán trực tiếp vào cột DB.
+4. Tiền tệ luôn dùng `Decimal`, **không bao giờ** dùng `float`.
+5. Không sửa lược đồ DB tại chỗ — tăng `SCHEMA_VERSION` và tạo migration Alembic mới.
+6. Frontend không chứa logic nghiệp vụ.
+
+## 5. Luật an toàn (bắt buộc — trên Windows, Cline hook không tự chặn được các việc này, nên phải tự tuân thủ bằng ý thức)
+
+- Không xoá dữ liệu quan trọng, không sửa `raw/` (nếu có).
+- Không commit secret (API key, password, token) — trước khi commit, tự rà lại diff.
+- Không chạy lệnh phá huỷ trên database (DROP, DELETE thiếu WHERE, TRUNCATE) nếu chưa được Owner duyệt.
+- Không tự ý đổi `PROJECT.md` / `SPEC.md` / `ARCHITECTURE.md` / scope của task.
+- Không refactor lớn ngoài phạm vi `Allowed files` của task đang làm.
+- Không chạy Git nguy hiểm (`reset --hard`, `push --force`, `clean -fd`) nếu chưa được duyệt.
+- Không deploy production.
+
+## 6. Claim Gate — không tuyên bố xong nếu không có bằng chứng thật
+
+**Không được viết** "đã test thành công" / "đã hoàn thành" / "build pass" nếu không **dán kèm output thật** của lệnh đã chạy (exit code + vài dòng log). Không tự đoán kết quả test. Nếu không chạy được lệnh kiểm tra, phải nói rõ "chưa kiểm tra được" — không suy đoán.
+
+Lệnh `Must pass` trong task PHẢI được chạy thật (vd. `cd backend && .venv/Scripts/pytest.exe tests/unit/test_validators.py -v`) và dán output thật vào báo cáo — không phải mô tả bằng lời.
+
+## 7. Sau khi làm xong một task — cách báo cáo
+
+**Không tự đánh dấu `DONE`** — chỉ Claude (Reviewer) mới đổi trạng thái sang `DONE` sau khi tự chạy lại `scripts/verify` và review theo `CHECKLIST.md`. Cline chỉ được đổi status sang **`REPORTED`**.
+
+Cập nhật trực tiếp vào `IMPLEMENTATION_PLAN.md`, mục `Current` của đúng task đó, gồm:
+1. Output thật của lệnh `Must pass` (dán nguyên, không tóm tắt).
+2. Có sai khác nào so với `Requirements`/docstring gốc không, và vì sao.
+3. Có giả định nào đã tự quyết trong lúc code không (nếu có, liệt kê rõ — Claude/Owner sẽ xác nhận lại).
+4. Đổi `Status:` của task từ `ASSIGNED` → `REPORTED`.
+
+Sau đó báo cho Owner biết đã xong để Owner chuyển lại cho Claude review.

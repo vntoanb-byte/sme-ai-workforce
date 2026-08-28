@@ -1,0 +1,45 @@
+name: sme-ai-workforce
+
+services:
+  vllm:
+    image: vllm/vllm-openai:v0.11.0
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: "0"
+      HF_HUB_OFFLINE: "1"            # bắt buộc khi mạng không có Internet
+    command: >
+      --model /models/Qwen3-VL-8B-Instruct-AWQ
+      --served-model-name Qwen3-VL-8B
+      --quantization awq
+      --max-model-len 32768
+      --gpu-memory-utilization 0.90
+      --limit-mm-per-prompt image=4
+      --disable-log-requests
+    volumes:
+      - ../models:/models:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s             # nạp mô hình 8B mất vài phút
+    restart: unless-stopped
+
+  app:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    depends_on:
+      vllm: { condition: service_healthy }
+    env_file: ../backend/.env
+    environment:
+      LLM_BASE_URL: http://vllm:8000/v1
+      LLM_MODEL: Qwen3-VL-8B
+    volumes:
+      - app-data:/data
+      - ${SCAN_DIR:-../data/scan}:/mnt/scan:ro   # thư mục hồ sơ, CHỈ ĐỌC
+    ports: ["8080:8080"]
+    restart: unless-stopped
+
+volumes:
+  app-data:

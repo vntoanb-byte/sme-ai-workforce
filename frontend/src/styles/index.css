@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { -webkit-font-smoothing: antialiased; }
+  body { @apply bg-[#F4F6FA] text-ink; }
+  /* Thanh cuộn mảnh cho khung nhật ký và bảng dài */
+  .thin-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+  .thin-scroll::-webkit-scrollbar-thumb { @apply bg-black/15 rounded; }
+  .thin-scroll::-webkit-scrollbar-track { background: transparent; }
+
+  /* Hiệu ứng "ghim vào" cho phiếu ghi chú QC / con dấu đối chiếu ở P-06 */
+  @keyframes slip-in {
+    from { opacity: 0; transform: translateY(-6px) rotate(-4deg); }
+    to { opacity: 1; }
+  }
+  .slip-enter { animation: slip-in 0.28s cubic-bezier(0.16, 1, 0.3, 1); }
+  @media (prefers-reduced-motion: reduce) {
+    .slip-enter { animation: none; }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"C:/Users/DELL/.claude/skills/controlled-ai-dev/hooks/protect-sensitive-files.cjs\"",
+            "timeout": 10,
+            "statusMessage": "Kiểm tra file nhạy cảm..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"C:/Users/DELL/.claude/skills/controlled-ai-dev/hooks/claim-gate.cjs\"",
+            "timeout": 10,
+            "statusMessage": "Claim Gate..."
+          }
+        ]
+      }
+    ]
+  }
+}

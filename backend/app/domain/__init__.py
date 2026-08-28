@@ -1,0 +1,5 @@
+"""
+domain
+
+Gói Python.
+"""

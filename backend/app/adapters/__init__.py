@@ -1,0 +1,5 @@
+"""
+adapters
+
+Gói Python.
+"""

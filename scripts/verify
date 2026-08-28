@@ -1,0 +1,111 @@
+#!/bin/bash
+# scripts/verify — kiểm tra thật, không đoán. Tự dò project có gì để chạy
+# đúng lệnh, bỏ qua phần không áp dụng thay vì giả vờ pass.
+# Sinh bởi controlled-ai-dev — có thể chỉnh sửa tự do cho đúng project này.
+
+set -uo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT" || exit 1
+
+PASS=1
+declare -a RESULTS=()
+
+run_check() {
+  local name="$1"; shift
+  echo "--- $name ---"
+  if "$@"; then
+    RESULTS+=("[PASS] $name")
+  else
+    RESULTS+=("[FAIL] $name")
+    PASS=0
+  fi
+}
+
+# --- Git status (không phải pass/fail, chỉ để Claude thấy trạng thái) ---
+if [ -d .git ]; then
+  echo "--- Git status ---"
+  git status --short
+fi
+
+# --- Secret scan thô (không thay được công cụ chuyên dụng, chỉ chặn lỗi rõ ràng) ---
+if [ -d .git ]; then
+  run_check "Secret scan (diff)" bash -c '! git diff --cached | grep -qiE "(api[_-]?key|secret|password|token)[\"'"'"']?\s*[:=]\s*[\"'"'"'][a-zA-Z0-9_\-]{12,}"'
+fi
+
+# --- Node/JS — quét root VÀ 1 cấp thư mục con (monorepo kiểu backend/+frontend/) ---
+check_node_dir() {
+  local dir="$1"
+  local pkg="$dir/package.json"
+  [ -f "$pkg" ] || return 0
+  # Không dùng subshell ( ) — RESULTS+=() bên trong subshell sẽ mất khi
+  # subshell thoát, làm tổng kết cuối luôn thấy mảng rỗng dù lệnh đã chạy
+  # và in output thật (đã bắt được lỗi này khi test trên sme-ai-workforce).
+  grep -q '"typecheck"' "$pkg" && run_check "npm typecheck ($dir)" npm --prefix "$dir" run typecheck
+  grep -q '"lint"' "$pkg" && run_check "npm lint ($dir)" npm --prefix "$dir" run lint
+  grep -q '"test"' "$pkg" && run_check "npm test ($dir)" npm --prefix "$dir" test
+  grep -q '"build"' "$pkg" && run_check "npm build ($dir)" npm --prefix "$dir" run build
+}
+check_node_dir "."
+for d in */; do
+  d="${d%/}"
+  [ "$d" = "node_modules" ] && continue
+  check_node_dir "$d"
+done
+
+# --- Python — quét root VÀ 1 cấp thư mục con. Ưu tiên venv cục bộ của
+# chính thư mục đó ($dir/.venv/{bin,Scripts}/pytest) trước PATH hệ thống —
+# thực tế monorepo thường có venv riêng cho backend/, không nằm trên PATH
+# (đã bắt được lỗi này khi test trên sme-ai-workforce/backend). ---
+find_tool_in_dir() {
+  local dir="$1" tool="$2"
+  # Trả về path TUYỆT ĐỐI — vì hàm gọi (check_python_dir) còn cd vào $dir
+  # trước khi chạy; nếu trả path tương đối kiểu "$dir/.venv/..." sẽ bị nối
+  # đè thành "$dir/$dir/.venv/..." sau khi đã cd (đã bắt lỗi này khi test
+  # thật). -f thay vì -x cho .exe: git-bash/MSYS không phản ánh đúng execute
+  # bit của file .exe trên NTFS qua test -x (cũng đã bắt lỗi này khi test).
+  local abs_dir; abs_dir="$(cd "$dir" 2>/dev/null && pwd)" || return 1
+  if [ -f "$abs_dir/.venv/Scripts/$tool.exe" ]; then echo "$abs_dir/.venv/Scripts/$tool.exe"; return 0; fi
+  if [ -x "$abs_dir/.venv/Scripts/$tool" ]; then echo "$abs_dir/.venv/Scripts/$tool"; return 0; fi
+  if [ -x "$abs_dir/.venv/bin/$tool" ]; then echo "$abs_dir/.venv/bin/$tool"; return 0; fi
+  command -v "$tool" 2>/dev/null
+}
+
+check_python_dir() {
+  local dir="$1"
+  { [ -f "$dir/requirements.txt" ] || [ -f "$dir/pyproject.toml" ]; } || return 0
+  local pytest_bin ruff_bin
+  pytest_bin="$(find_tool_in_dir "$dir" pytest)"
+  ruff_bin="$(find_tool_in_dir "$dir" ruff)"
+  if [ -n "$pytest_bin" ] && [ -d "$dir/tests" ]; then
+    run_check "pytest ($dir)" bash -c "cd '$dir' && '$pytest_bin'"
+  fi
+  if [ -n "$ruff_bin" ]; then
+    run_check "ruff check ($dir)" bash -c "cd '$dir' && '$ruff_bin' check ."
+  fi
+}
+check_python_dir "."
+for d in */; do
+  d="${d%/}"
+  [ "$d" = "node_modules" ] && continue
+  check_python_dir "$d"
+done
+
+echo ""
+echo "PROJECT VERIFICATION"
+echo ""
+if [ "${#RESULTS[@]}" -eq 0 ]; then
+  echo "KHÔNG TÌM THẤY LỆNH KIỂM TRA NÀO ĐỂ CHẠY (không có package.json/requirements.txt ở root hoặc 1 cấp con,"
+  echo "hoặc có nhưng thiếu script test/lint/pytest/ruff)."
+  echo ""
+  echo "RESULT: NO_CHECKS_FOUND — KHÔNG được coi là PASS. Tự bổ sung lệnh kiểm tra đúng cho project này vào $0."
+  exit 2
+fi
+for r in "${RESULTS[@]}"; do echo "$r"; done
+echo ""
+if [ "$PASS" -eq 1 ]; then
+  echo "RESULT: PASS"
+  exit 0
+else
+  echo "RESULT: FAIL"
+  exit 1
+fi
