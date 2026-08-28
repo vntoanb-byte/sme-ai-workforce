@@ -81,9 +81,29 @@
 - Không đụng `db/session.py`, `db/base.py`, `schemas/workflow_spec.py`, `domain/*`, `ports/llm.py`, `adapters/llm_openai_compatible.py` (đã kiểm bằng `git diff --stat`).
 - **Giả định cần Toàn xác nhận lại (ghi NOTE trong code):** (1) lược đồ cột bảng `job_queue` — suy từ SQL trong docstring gốc, chưa có model ORM/Alembic migration thật; (2) trạng thái `'succeeded'` — không có trong 3 trạng thái docstring gốc liệt kê (pending/claimed/failed), cần thiết để phân biệt "xong" với "chờ"/"lỗi".
 
+**Task: TASK-004 — Hiện thực `ports/storage.py` + `adapters/storage_local.py`**
+
+**Status:** DONE (2026-08-28) — Cline CLI viết, Claude Code review không phát hiện bug.
+
+**Completed (TASK-004):**
+- Lần chạy đầu tiên **lỗi thật** ("request body rejected... malformed messages") — nguyên nhân: codepage console Windows máy này là **437** (không phải UTF-8), Cline đọc file `.md` tiếng Việt qua lệnh PowerShell (`Get-Content`) làm vỡ encoding, text vỡ lẫn vào request gửi model. Đã sửa `.clinerules` (mục 2.5 mới) + nhắc thẳng trong prompt: bắt buộc dùng tool đọc file gốc, không qua shell cho nội dung file. Chạy lại thành công.
+- `LocalFileStorage`: lưu tệp theo `<sha256[:2]>/<sha256[2:4]>/<sha256><ext>` tương đối `base_path`; khử trùng bằng kiểm sha256+kích thước trước khi ghi lại; ghi nguyên tử qua tệp tạm + `os.replace()`.
+- **Evidence — pytest (toàn bộ, 50 test):**
+  ```
+  tests\unit\test_compiler.py     ..............  [ 28%]
+  tests\unit\test_queue_sqlite.py ..........      [ 48%]
+  tests\unit\test_storage_local.py .........      [ 66%]
+  tests\unit\test_validators.py   .................[100%]
+  50 passed in 0.88s
+  ```
+- **Evidence — ruff:** `All checks passed!` — **mypy:** `Success: no issues found in 2 source files`
+- **Evidence — scripts/verify toàn dự án:** PASS hết trừ ruff (vẫn đúng 41 lỗi debt cũ, không phát sinh mới).
+- Không đụng file ngoài `Allowed files` (đã kiểm `git diff --stat` cho `core/config.py`, `db/*`, `domain/*`, `ports/queue.py`, `adapters/queue_sqlite.py`, `schemas/*`).
+- **Giả định cần Toàn xác nhận (NOTE trong code):** không thêm lớp `"artifacts/"` vào đường dẫn vì `settings.STORAGE_PATH` mặc định đã là `"./data/artifacts"` — tránh trùng lặp `"artifacts/artifacts/..."`.
+
 **Next:**
-- TASK-004: `adapters/storage_local.py`
-- Sau đó: `models/*` (đang là docstring stub, cần trước khi `services/*`/`api/v1/*` chạy thật được) → `services/*` → `api/v1/*` → `tools/*` → `agents/crew.py` (đọc ADR-002 trước) → `workers/*`
+- TASK-005: `models/*` (7 file, đang là docstring stub — cần trước khi `services/*`/`api/v1/*` chạy thật được, và trước khi `job_queue`/`succeeded` ở TASK-003 được đối chiếu lại với model ORM thật)
+- Sau đó: `services/*` → `api/v1/*` → `tools/*` → `agents/crew.py` (đọc ADR-002 trước) → `workers/*`
 - Cuối cùng: nối frontend vào API thật
 
 **Blocker:**
@@ -103,3 +123,9 @@
 - `backend/app/ports/queue.py` (hiện thực đầy đủ)
 - `backend/app/adapters/queue_sqlite.py` (hiện thực đầy đủ)
 - `backend/tests/unit/test_queue_sqlite.py` (mới, 10 test, có test đồng thời thật)
+
+**Files affected (TASK-004):**
+- `backend/app/ports/storage.py` (hiện thực đầy đủ)
+- `backend/app/adapters/storage_local.py` (hiện thực đầy đủ)
+- `backend/tests/unit/test_storage_local.py` (mới, 9 test)
+- `.clinerules` (thêm mục 2.5 — bắt buộc dùng tool đọc file gốc, tránh vỡ encoding qua PowerShell)

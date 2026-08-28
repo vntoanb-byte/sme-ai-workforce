@@ -77,6 +77,22 @@ Start-Process powershell -ArgumentList @('-NoExit','-Command',"Get-Content -Path
 
 Cửa sổ PowerShell này chỉ **đọc** log (`Get-Content -Wait`), không điều khiển hay can thiệp gì vào tiến trình — an toàn, Owner đóng lúc nào cũng được, không ảnh hưởng `cline` đang chạy. Đây là cách hợp lệ duy nhất để "cho Owner xem trực tiếp" mà không cần điều khiển chuột/bàn phím GUI (thứ Claude Code không có khả năng làm — xem Mục 6 SKILL.md).
 
+### Bẫy codepage Windows — làm vỡ nội dung tiếng Việt (xác nhận thật 2026-08-28)
+
+Trên máy Windows có codepage console mặc định KHÔNG phải UTF-8 (kiểm bằng lệnh
+`chcp` — nếu không thấy `Active code page: 65001` thì đang bị bẫy này), khi
+Cline đọc file có dấu tiếng Việt bằng lệnh shell (`Get-Content`/`cat`/`type`
+qua tool chạy lệnh của nó thay vì tool đọc file gốc), nội dung bị vỡ encoding
+(mojibake). Nếu Cline sau đó đưa nội dung vỡ vào request gửi lên model, có thể
+gây lỗi thật dạng "request body rejected... malformed messages" từ provider.
+
+**Bắt buộc khi task/project có nội dung tiếng Việt (hoặc ngôn ngữ có dấu
+khác):** thêm vào `.clinerules` của project và/hoặc đầu mỗi prompt giao task —
+*"Luôn dùng tool đọc file gốc (read_files) để đọc file .md/.py/text — KHÔNG
+dùng Get-Content/cat/type qua run_commands cho việc đọc nội dung file. Chỉ
+dùng run_commands cho lệnh thật sự cần chạy (test/lint/liệt kê thư mục)."*
+Đã verify: sau khi thêm dòng này, task chạy lại thành công không còn lỗi.
+
 ## ⚠️ Giới hạn thật đã kiểm chứng (không phải giả định)
 
 - **Cline hooks không chạy trên Windows** (v3.36+, docs Cline chính thức xác nhận macOS/Linux only). Trên Windows, không dựa vào Cline hook để cưỡng chế — dùng Git pre-commit hook (cross-platform) + Claude Code tự chạy `scripts/verify` khi review.
