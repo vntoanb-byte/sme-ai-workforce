@@ -14,7 +14,7 @@ frontend/dist/
 
 # Dữ liệu — TUYỆT ĐỐI không commit
 data/
-models/
+/models/
 *.db
 *.db-wal
 *.db-shm

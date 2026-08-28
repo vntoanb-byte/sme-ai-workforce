@@ -67,6 +67,14 @@ def _do_begin(conn) -> None:  # noqa: ANN001
         conn.exec_driver_sql("BEGIN IMMEDIATE")
     else:
         conn.exec_driver_sql("BEGIN")
+    # SQLite chỉ kiểm tra FK ngay lập tức theo mặc định — nếu 1 transaction ghi
+    # nhiều bảng có FK phụ thuộc lẫn nhau (vd. workflow_edges có FK ghép trỏ
+    # workflow_steps, cả hai được flush trong cùng 1 transaction nhưng thứ tự
+    # insert do SQLAlchemy tự quyết, không đảm bảo steps luôn ghi trước edges),
+    # bật defer_foreign_keys để hoãn kiểm tra FK tới khi COMMIT — tự tắt lại
+    # sau mỗi COMMIT/ROLLBACK (theo tài liệu SQLite), nên phải bật lại mỗi
+    # transaction ở đây, không thể bật 1 lần trong event "connect".
+    conn.exec_driver_sql("PRAGMA defer_foreign_keys=ON")
 
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
