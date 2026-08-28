@@ -24,6 +24,22 @@ Trước khi viết code, khảo sát có giới hạn — không tự do quét 
 
 Sau khảo sát: tóm tắt ngắn gọn những gì đã hiểu → implement → chạy `Must pass` thật.
 
+## 2.5. BẮT BUỘC: đọc file bằng tool đọc file gốc, KHÔNG qua PowerShell (2026-08-28)
+
+Codepage console mặc định trên máy này là **437** (không phải UTF-8/65001) — đã
+xác nhận thật bằng `chcp`. Khi bạn đọc file tiếng Việt (mọi file `.md` trong
+project này đều có dấu) bằng lệnh shell (`Get-Content`, `type`, `cat` qua
+`run_commands`/PowerShell), nội dung tiếng Việt bị vỡ encoding (mojibake) —
+đã tự gây ra lỗi thật "request body rejected... malformed messages" từ
+provider vì text vỡ encoding lẫn vào request gửi model.
+
+**Luôn dùng tool đọc file gốc của bạn (read_files hoặc tương đương) để đọc bất
+kỳ file `.md`/`.py`/text nào — KHÔNG dùng `Get-Content`/`cat`/`type` qua
+run_commands cho việc đọc nội dung file.** Chỉ dùng `run_commands` cho việc
+thật sự cần chạy lệnh (pytest, ruff, mypy, liệt kê thư mục bằng
+`Get-ChildItem`/`dir` — tên file/thư mục ở project này đều là ASCII nên liệt
+kê tên không bị ảnh hưởng, chỉ NỘI DUNG file tiếng Việt mới vỡ).
+
 ## 3. Làm đúng theo khối task, không tự mở rộng
 
 Mỗi khối task có cấu trúc cố định: `Goal / Allowed files / Requirements / Must pass / Do not / Report`.
