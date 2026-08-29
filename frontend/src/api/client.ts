@@ -37,17 +37,20 @@ export function getAccessToken() { return accessToken }
 
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
-// (2026-08-29, TASK-007) Backend thật CHƯA có auth/JWT — quyết định có chủ
-// đích của TASK-006 (xem `# TODO SECURITY` trong
-// backend/app/api/v1/documents.py + IMPLEMENTATION_PLAN.md). `/auth/*` vẫn đi
-// qua mock TẠM THỜI dù USE_MOCK=false, để đăng nhập được và vào xem tính năng
-// thật (documents) — KHÔNG giả mạo backend, chỉ tránh chặn UI ở màn đăng nhập
-// trong lúc auth thật chưa làm. XOÁ dòng này ngay khi có models/user.py + JWT
-// thật nối vào api/deps.py.
-const MOCK_ONLY_PATHS = ['/auth/']
+// (2026-08-29, TASK-007) Backend thật MỚI CHỈ có router `documents` (8 router
+// còn lại — auth, employees, workflows, runs, reviews, reports, tools, admin —
+// vẫn là docstring stub, xem IMPLEMENTATION_PLAN.md). VITE_USE_MOCK=false là
+// công tắc CHUNG cho toàn app, nhưng gọi thật vào route chưa tồn tại sẽ vỡ cả
+// Dashboard/Employees/Runs/... — nên dùng DANH SÁCH CHO PHÉP: chỉ tiền tố nằm
+// trong REAL_BACKEND_PATHS mới đi backend thật khi USE_MOCK=false, phần còn
+// lại (kể cả /auth — backend thật chưa có JWT) vẫn đi mock. THÊM tiền tố vào
+// đây khi router tương ứng được hiện thực xong ở backend, KHÔNG xoá cơ chế
+// này cho tới khi đủ cả 8 router.
+const REAL_BACKEND_PATHS = ['/documents']
 
 export async function request<T>(method: Method, path: string, body?: unknown): Promise<T> {
-  if (USE_MOCK || MOCK_ONLY_PATHS.some((p) => path.startsWith(p))) {
+  const canUseRealBackend = REAL_BACKEND_PATHS.some((p) => path === p || path.startsWith(p + '/') || path.startsWith(p + '?'))
+  if (USE_MOCK || !canUseRealBackend) {
     return mockRequest<T>(method, path, body)
   }
 
