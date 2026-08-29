@@ -157,7 +157,11 @@ export function DocumentReviewPage() {
                 }}
               >
                 <div style={{ transform: `scale(${zoom}) rotate(${rotate}deg)`, transformOrigin: 'top center' }}>
-                  <InvoicePreview data={doc.data} />
+                  {/* file_url rỗng ở mock ('') -> InvoicePreview tự dựng lại hoá
+                      đơn "đúng" để đối chiếu (thiết kế có chủ đích, xem docstring
+                      InvoicePreview.tsx); backend thật trả file_url thật -> hiện
+                      ảnh gốc. */}
+                  <InvoicePreview data={doc.data} fileUrl={doc.file_url} />
                 </div>
               </div>
               <RegistrationMarks />

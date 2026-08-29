@@ -38,10 +38,20 @@ def test_upload_valid_invoice_returns_ok_with_full_detail(client: TestClient) ->
     assert body["filename"] == "hd-001.png"
     assert body["invoice_no"] == "0000123"
     assert body["seller_name"] == "Công ty TNHH ABC"
+    # TASK-007: PHẢI trỏ đúng route GET /documents/{id}/file thật (đã hiện
+    # thực ở TASK-006) — KHÔNG dùng storage.url_for() ("/artifacts/...") vì
+    # route đó chưa từng được mount, phát hiện thật khi <img> vỡ trên frontend.
+    assert body["file_url"] == f"/api/v1/documents/{body['id']}/file"
     assert body["qc_failed"] == 0
     assert len(body["qc"]) == 8
     assert body["data"]["invoice_no"] == "0000123"
     assert body["model_name"] == "fake-model-v1"
+    # frontend/src/api/types.ts khai báo total/totals.*/line_items[].* là
+    # `number` — Decimal PHẢI ép về float ở biên API (TASK-007), không được
+    # trả chuỗi (Pydantic/FastAPI mặc định serialize Decimal thành str).
+    assert isinstance(body["total"], float)
+    assert isinstance(body["data"]["totals"]["subtotal"], float)
+    assert isinstance(body["data"]["line_items"][0]["unit_price"], float)
 
 
 def test_upload_non_image_pdf_returns_rejected(client: TestClient) -> None:

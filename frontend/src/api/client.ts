@@ -37,8 +37,19 @@ export function getAccessToken() { return accessToken }
 
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
+// (2026-08-29, TASK-007) Backend thật CHƯA có auth/JWT — quyết định có chủ
+// đích của TASK-006 (xem `# TODO SECURITY` trong
+// backend/app/api/v1/documents.py + IMPLEMENTATION_PLAN.md). `/auth/*` vẫn đi
+// qua mock TẠM THỜI dù USE_MOCK=false, để đăng nhập được và vào xem tính năng
+// thật (documents) — KHÔNG giả mạo backend, chỉ tránh chặn UI ở màn đăng nhập
+// trong lúc auth thật chưa làm. XOÁ dòng này ngay khi có models/user.py + JWT
+// thật nối vào api/deps.py.
+const MOCK_ONLY_PATHS = ['/auth/']
+
 export async function request<T>(method: Method, path: string, body?: unknown): Promise<T> {
-  if (USE_MOCK) return mockRequest<T>(method, path, body)
+  if (USE_MOCK || MOCK_ONLY_PATHS.some((p) => path.startsWith(p))) {
+    return mockRequest<T>(method, path, body)
+  }
 
   const res = await fetch(BASE + path, {
     method,

@@ -45,11 +45,14 @@ export function InvoicePreview({ data, fileUrl }: { data: InvoiceData; fileUrl?:
       </div>
 
       <p><b>Đơn vị bán hàng:</b> {data.seller.name.toUpperCase()}</p>
-      <p><b>Mã số thuế:</b> {spaced(correctTaxCode(data.seller.tax_code))}</p>
+      <p><b>Mã số thuế:</b> {data.seller.tax_code ? spaced(correctTaxCode(data.seller.tax_code)) : '—'}</p>
       <p className="mb-2"><b>Địa chỉ:</b> {data.seller.address ?? '—'}</p>
 
-      <p><b>Đơn vị mua hàng:</b> {(data.buyer.name ?? '').toUpperCase()}</p>
-      <p className="mb-2.5"><b>Mã số thuế:</b> {spaced(data.buyer.tax_code ?? '')}</p>
+      {/* NOTE (TASK-007): backend thật (schemas/invoice.py) trả buyer=null khi
+          hoá đơn không ghi thông tin bên mua (thực tế thường gặp, vd. bán lẻ)
+          — mock trước đây luôn có sẵn buyer nên chưa lộ ca này. */}
+      <p><b>Đơn vị mua hàng:</b> {(data.buyer?.name ?? '').toUpperCase() || '—'}</p>
+      <p className="mb-2.5"><b>Mã số thuế:</b> {data.buyer?.tax_code ? spaced(data.buyer.tax_code) : '—'}</p>
 
       <table className="mb-2 w-full border-collapse text-[8.5px]">
         <thead>

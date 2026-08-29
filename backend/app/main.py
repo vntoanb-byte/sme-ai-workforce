@@ -4,16 +4,20 @@
 Tạo đối tượng FastAPI, gắn middleware, đăng ký bộ xử lý lỗi, include router
 v1, phục vụ file tĩnh của giao diện React đã build, và khởi động bộ lập lịch.
 
-TRẠNG THÁI (2026-08-29, TASK-006): thêm CORS (settings.CORS_ORIGINS) và mount
-router /api/v1 (hiện chỉ có documents — 8 router còn lại vẫn là stub). Vẫn
-CHƯA làm (file phụ thuộc vẫn stub, làm ở task sau):
+TRẠNG THÁI (2026-08-29, TASK-006/007): thêm CORS (settings.CORS_ORIGINS), mount
+router /api/v1 (hiện chỉ có documents — 8 router còn lại vẫn là stub), và sự
+kiện startup TẠM THỜI tự tạo bảng qua Base.metadata.create_all() (xem NOTE ở
+sự kiện startup bên dưới — KHÔNG phải Alembic thật). Vẫn CHƯA làm (file phụ
+thuộc vẫn stub, làm ở task sau):
   - Exception handler cho AppError/RequestValidationError — core/errors.py stub.
   - Middleware trace_id, mount StaticFiles('frontend/dist').
-  - Sự kiện startup chạy Alembic/seed/scheduler — workers/scheduler.py stub.
+  - Alembic migration thật + seed dữ liệu + khởi động scheduler — workers/scheduler.py stub.
 """
 
 from __future__ import annotations  # noqa: I001
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
@@ -27,12 +31,32 @@ from sqlalchemy import text
 # app.db.base kịp nạp xong toàn bộ 21 bảng (phát hiện thật khi chạy
 # `uvicorn app.main:app` — pytest không lộ vì tests/conftest.py tình cờ import
 # app.db.base trước app.main). Thứ tự dòng dưới đây CỐ Ý không theo isort.
-from app.db.base import Base  # noqa: F401
+from app.db.base import Base
 from app.api.v1 import api_router
 from app.core.config import settings
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal, engine
 
-app = FastAPI(title="SME AI Workforce API", openapi_url="/api/v1/openapi.json")
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Tự tạo bảng nếu DB rỗng — TẠM THỜI, KHÔNG PHẢI Alembic thật.
+
+    Phát hiện thật (TASK-007): DB mới (file .db chưa tồn tại hoặc rỗng) không
+    có bảng nào — mọi request chạm DB lỗi `no such table`. Trước giờ chỉ chạy
+    được vì ai đó (hoặc chính Claude khi verify TASK-005b) đã tự gọi
+    `Base.metadata.create_all()` một lần thủ công trên `data/app.db` sẵn có.
+    `create_all()` CHỈ tạo bảng CHƯA có, không đụng bảng đã tồn tại — an toàn
+    gọi lại mỗi lần khởi động, nhưng đây KHÔNG thay thế Alembic migration thật
+    (không xử lý được thay đổi cột trên bảng đã tồn tại — theo đúng quy tắc
+    kiến trúc "không sửa lược đồ tại chỗ"). Xoá khi có Alembic +
+    `alembic upgrade head` thật ở bước khởi động.
+    """
+    Base.metadata.create_all(engine)
+    yield
+
+
+app = FastAPI(
+    title="SME AI Workforce API", openapi_url="/api/v1/openapi.json", lifespan=_lifespan
+)
 
 app.add_middleware(
     CORSMiddleware,

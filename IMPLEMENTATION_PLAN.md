@@ -611,3 +611,41 @@ Do not:
 - `backend/app/db/base.py` (thêm import 9 model mới)
 - `backend/app/models/user.py`, `employee.py`, `workflow.py` (hiện thực đầy đủ, 9 bảng)
 - `backend/tests/unit/test_models_group_a.py` (mới, 7 test)
+
+**Task: TASK-007 — Nối trang Documents (frontend) vào API thật, thay mock**
+
+**Status:** DONE (2026-08-29) — Claude Code tự làm trực tiếp (không qua Cline, việc nhỏ + đã hiểu rõ code sẵn có) + tự verify bằng cả TestClient lẫn trình duyệt thật (Browser pane, LM Studio thật).
+
+Goal: bật `VITE_USE_MOCK=false` cho trang Chứng từ (Documents), để Owner xem được UI thật (không phải Swagger) đang gọi đúng backend TASK-006.
+
+**Phát hiện quan trọng khi khảo sát trước khi code:** `frontend/src/api/client.ts` đã có sẵn công tắc `USE_MOCK` + `frontend/src/features/documents/UploadDrawer.tsx` đã tự tính sha256 client-side và để sẵn comment "Trong bản thật: gọi /documents/presign..." — kiến trúc frontend đã được thiết kế đúng ngay từ đầu để chuyển sang backend thật, chỉ cần nối dây, không cần viết lại.
+
+**5 bug thật phát hiện + sửa (qua verify bằng trình duyệt thật, KHÔNG chỉ tin typecheck/test):**
+1. Tiền tệ (`total`, `totals.subtotal/vat_rate/vat_amount/total`, `line_items[].quantity/unit_price/amount`) bị trả về dạng CHUỖI (Pydantic/FastAPI serialize `Decimal` thành `str` mặc định) trong khi `frontend/src/api/types.ts` khai báo `number` — sửa `documents.py` thêm hàm `_floatify()` đệ quy ép Decimal→float ở đúng biên API (không đụng Decimal nội bộ). Bắt được TRƯỚC khi chạm trình duyệt, qua đọc kỹ `types.ts` đối chiếu response thật.
+2. **`uvicorn app.main:app` chạy qua công cụ preview có cwd khác `backend/`** → `.env` không tìm thấy (đường dẫn tương đối) → mọi setting rơi về mặc định (`LLM_API_KEY=""` → lỗi `Illegal header value`) — sửa `core/config.py` neo `env_file` theo đường dẫn TUYỆT ĐỐI từ vị trí chính file, không phụ thuộc cwd.
+3. **`no such table: documents`** — app CHƯA BAO GIỜ tự tạo bảng khi khởi động (trước giờ chạy được chỉ vì đã có người tự gọi `create_all()` thủ công một lần trên `data/app.db` sẵn có, khi verify TASK-005b) — thêm `lifespan` (không dùng `on_event` đã deprecated) gọi `Base.metadata.create_all(engine)` lúc khởi động, có NOTE rõ đây là TẠM THỜI, không thay Alembic thật.
+4. `InvoicePreview.tsx` **crash trắng trang** (`Cannot read properties of null (reading 'name')`) khi `data.buyer` là `null` — hoá đơn thật thường không có thông tin bên mua (mock luôn có sẵn nên chưa lộ). Sửa null-safe cho `buyer` và `seller.tax_code` (cũng có thể null khi AI đọc thiếu).
+5. `file_url` trả về từ `storage.url_for(ref)` là `"/artifacts/{path}"` — route này **CHƯA BAO GIỜ được mount** ở `main.py` (không `StaticFiles`, không router khớp) → `<img>` vỡ. Sửa `documents.py` trả thẳng `f"/api/v1/documents/{document.id}/file"` (route thật đã có từ TASK-006). Đồng thời phát hiện `DocumentReviewPage.tsx` **chưa từng truyền `fileUrl` cho `<InvoicePreview>`** dù component đã có sẵn nhánh code xử lý — nối `fileUrl={doc.file_url}` (mock trả `file_url: ''` nên hành vi cũ ở chế độ mock không đổi).
+
+**Việc khác đã làm:**
+- `frontend/vite.config.ts`: đổi proxy target `8080` → `8123` (đúng cổng backend TASK-006).
+- `frontend/.env` (mới, KHÔNG commit — đã gitignore): `VITE_USE_MOCK=false`.
+- `documents.ts`: `uploadDocument` nhận `File` thật + `FormData` (trước đó chỉ nhận filename, mô phỏng mock); thêm `presignDocument`; `listDocuments` tự quy đổi `page/page_size` (kiểu frontend) → `limit/offset` (kiểu backend thật), bỏ qua `q` (backend chưa hỗ trợ tìm kiếm).
+- `UploadDrawer.tsx`: nối presign thật trước khi upload (đúng comment để sẵn), dùng `uploadDocument(file)` mới.
+- `client.ts`: `/auth/*` CỐ Ý vẫn đi qua mock dù `USE_MOCK=false` — backend thật chưa có auth (quyết định TASK-006), nếu không có bước này người dùng bị kẹt ở màn đăng nhập, không vào xem được tính năng thật. Ghi rõ "XOÁ ngay khi có JWT thật".
+- `.claude/launch.json` (OS Brain, ngoài repo): thêm config `sme-backend` (cmd.exe wrapper `cd /d <backend> && uvicorn ...` — bắt buộc để cwd đúng, xem bug #2).
+
+**Evidence — verify bằng trình duyệt thật (Browser pane), KHÔNG chỉ TestClient:**
+- Đăng nhập (qua mock tạm thời) → vào `/documents` → gọi API thật, danh sách rỗng đúng (DB mới, không lỗi).
+- Upload 1 ảnh hoá đơn thật (tự tạo, có bảng chi tiết dòng hàng) qua UI thật (giả lập chọn file bằng DataTransfer vì Browser pane không có tool upload file) → **LM Studio thật (Bionic, model qwen/qwen3-vl-8b) đọc đúng**: số hoá đơn "0005678", tổng tiền "3.300.000" khớp chính xác ảnh gốc, độ trễ 11.0 giây.
+- Mở trang chi tiết → ảnh gốc hiển thị đúng (không vỡ), cảnh báo QC-05 (AI đọc nhầm năm 2026→2008) hiển thị đúng ngay trên form — chứng minh cả luồng UI xem/đối chiếu hoạt động, không chỉ API.
+- Test dedup: upload lại đúng bytes cũ → đúng hiện "Đã có" (presign chặn, không tạo document mới) — khớp thiết kế SPEC.md "chống trùng sớm".
+- Dọn sạch dữ liệu test (documents/extractions/qc_results/artifacts) khỏi `data/app.db` sau khi verify xong.
+
+**Evidence — pytest/ruff/mypy (backend):** `94 passed` (không đổi số lượng, thêm 2 assertion khoá bug #1 và #5 vào `test_api_documents.py`); `ruff check` sạch; `mypy` sạch (trừ 1 lỗi debt cũ `qc_rules.py` không đổi).
+
+**Evidence — frontend:** `npm run typecheck` sạch sau mọi thay đổi.
+
+**Giả định/quyết định cần Toàn xác nhận:** (1) auth tạm thời qua mock cho tới khi có JWT thật; (2) `q` (tìm kiếm) chưa lọc được ở backend, chỉ bị bỏ qua im lặng — cần làm full-text search sau nếu Owner cần gấp.
+
+**Chưa làm (ngoài phạm vi, để sau):** `PATCH /documents/{id}/extraction` (nút "Xác nhận và lưu" trên UI hiện sẽ lỗi 404 nếu bấm — CHƯA test kỹ luồng này, cần Owner biết trước khi demo).

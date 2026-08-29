@@ -13,7 +13,7 @@ import * as React from 'react'
 import { CheckCircle2, CloudUpload, FileWarning, X } from 'lucide-react'
 import { Drawer } from '@/components/ui/overlay'
 import { Button, Callout } from '@/components/ui/primitives'
-import { uploadDocument } from '@/api/documents'
+import { presignDocument, uploadDocument } from '@/api/documents'
 import { cn } from '@/lib/cn'
 
 const MAX_MB = 20
@@ -69,10 +69,14 @@ export function UploadDrawer({ open, onClose, onDone }: {
           patch(it.id, { state: 'hashing', progress: 10 })
           const hash = await sha256(it.file)
 
+          const { exists } = await presignDocument(hash)
+          if (exists) {
+            patch(it.id, { state: 'duplicate', progress: 100 })
+            continue
+          }
+
           patch(it.id, { state: 'uploading', progress: 45 })
-          // Trong bản thật: gọi /documents/presign với hash để kiểm tra trùng trước khi tải lên
-          void hash
-          await uploadDocument(it.file.name)
+          await uploadDocument(it.file)
 
           patch(it.id, { state: 'done', progress: 100 })
         } catch (e) {

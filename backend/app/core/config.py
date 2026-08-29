@@ -7,11 +7,20 @@ NHẤT được phép đọc os.environ — mọi module khác import settings t
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Đường dẫn TUYỆT ĐỐI tới backend/.env, neo theo vị trí chính file này —
+# KHÔNG phụ thuộc thư mục làm việc (cwd) lúc tiến trình khởi động. Phát hiện
+# thật (TASK-007): khi chạy qua công cụ preview (cwd khác backend/), đường dẫn
+# TƯƠNG ĐỐI ".env" cũ không tìm thấy tệp, mọi biến rơi về giá trị mặc định
+# (LLM_API_KEY rỗng → lỗi "Illegal header value" khi gọi model).
+_ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
     # ─── Mô hình ───
     LLM_BASE_URL: str = "https://openrouter.ai/api/v1"

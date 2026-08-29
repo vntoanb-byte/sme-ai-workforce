@@ -9,6 +9,7 @@ status=needs_review (xem note TASK-006 trong IMPLEMENTATION_PLAN.md).
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 from typing import Annotated, Any, BinaryIO
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
@@ -47,6 +48,28 @@ def _latest_extraction(db: Session, document_id: int) -> Extraction | None:
     )
 
 
+def _floatify(obj: Any) -> Any:
+    """Đệ quy chuyển mọi Decimal trong dict/list thành float.
+
+    NOTE (TASK-007): Pydantic (cả mode="python" lẫn mode="json") VÀ
+    jsonable_encoder của FastAPI đều serialize Decimal thành CHUỖI (giữ chính
+    xác tuyệt đối) — nhưng `frontend/src/api/types.ts` khai báo mọi trường tiền
+    tệ là `number` (vd. DocumentRow.total, InvoiceData.totals.subtotal,
+    LineItem.quantity/unit_price/amount). Chuỗi vẫn hiển thị được ở hầu hết chỗ
+    (Intl.NumberFormat tự ép kiểu) nhưng sai hợp đồng kiểu dữ liệu — chỉ ép
+    float ở BIÊN API (trả về cho frontend hiển thị), KHÔNG đụng tới Decimal
+    dùng nội bộ (lưu DB/tính toán vẫn luôn Decimal theo đúng quy tắc kiến
+    trúc).
+    """
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if isinstance(obj, dict):
+        return {k: _floatify(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_floatify(v) for v in obj]
+    return obj
+
+
 def _document_row(
     document: Document,
     extraction: Extraction | None,
@@ -65,7 +88,7 @@ def _document_row(
             else None
         ),
         "seller_name": extraction.seller_name if extraction else None,
-        "total": extraction.total if extraction else None,
+        "total": float(extraction.total) if extraction and extraction.total is not None else None,
         "qc_failed": qc_failed,
         "created_at": document.created_at.isoformat(),
     }
@@ -75,17 +98,17 @@ def _extraction_data(extraction: Extraction | None) -> dict[str, Any]:
     """Dựng object `data` trả về cho frontend.
 
     Parse lại extracted_data_json bằng InvoiceExtraction (đảm bảo đúng cấu trúc
-    schema) rồi dump về mode="python" — FastAPI sẽ chuyển Decimal/date thành số
-    và chuỗi ISO khi encode. KHÔNG trả thẳng json.loads() vì trong blob tiền tệ
-    đang là chuỗi (chính xác tuyệt đối để lưu — xem _serialize_extraction).
+    schema) rồi dump về mode="python" + _floatify() để mọi trường tiền tệ lồng
+    nhau (totals.*, line_items[].quantity/unit_price/amount) là number thật,
+    khớp `InvoiceData` trong types.ts. KHÔNG trả thẳng json.loads() vì trong
+    blob tiền tệ đang là chuỗi (chính xác tuyệt đối để lưu — xem
+    _serialize_extraction).
     """
     if extraction is None or not extraction.extracted_data_json:
         return {}
     try:
-        return (
-            InvoiceExtraction.model_validate_json(extraction.extracted_data_json)
-            .model_dump(mode="python")
-        )
+        parsed = InvoiceExtraction.model_validate_json(extraction.extracted_data_json)
+        return _floatify(parsed.model_dump(mode="python"))
     except (ValueError, TypeError):
         return {}
 
@@ -93,23 +116,25 @@ def _extraction_data(extraction: Extraction | None) -> dict[str, Any]:
 def _document_detail(
     document: Document,
     extraction: Extraction | None,
-    storage: FileStorage,
 ) -> dict[str, Any]:
-    """Chi tiết đầy đủ: hàng cơ bản + file_url + extraction + qc[]."""
+    """Chi tiết đầy đủ: hàng cơ bản + file_url + extraction + qc[].
+
+    NOTE (TASK-007): KHÔNG dùng `storage.url_for(ref)` — adapter trả về
+    "/artifacts/{path}" (đường dẫn CHUNG, chính docstring của nó ghi rõ "chưa
+    nối với route API thật nào"), nhưng route đó CHƯA BAO GIỜ được mount ở
+    `main.py` (không `StaticFiles`, không router nào khớp `/artifacts/*`) —
+    phát hiện thật khi xem `<img>` bị vỡ trên frontend. Route THẬT để tải file
+    là `GET /documents/{id}/file` (đã hiện thực ở TASK-006, ngay trong file
+    này) — dùng đúng route đó.
+    """
     qc_results = list(extraction.qc_results) if extraction else []
-    ref = ArtifactRef(
-        sha256=document.artifact.sha256,
-        path=document.artifact.path,
-        size_bytes=document.artifact.size_bytes,
-        content_type=document.artifact.content_type,
-    )
     return {
         **_document_row(
             document,
             extraction,
             qc_failed=sum(1 for q in qc_results if not q.passed),
         ),
-        "file_url": storage.url_for(ref),
+        "file_url": f"/api/v1/documents/{document.id}/file",
         "schema_version": extraction.schema_version if extraction else None,
         "model_name": extraction.model_name if extraction else None,
         "confidence": (
@@ -198,7 +223,7 @@ def upload_document(
     # nhưng extractions có thể chưa load) — đọc lại sạch sẽ hơn.
     db.refresh(document, attribute_names=["artifact", "extractions"])
     extraction = _latest_extraction(db, document.id)
-    return _document_detail(document, extraction, storage)
+    return _document_detail(document, extraction)
 
 
 @router.get("")
@@ -283,7 +308,7 @@ def list_documents(
                     row.issue_date.isoformat() if row.issue_date else None
                 ),
                 "seller_name": row.seller_name,
-                "total": row.total,
+                "total": float(row.total) if row.total is not None else None,
                 "qc_failed": row.qc_failed or 0,
                 "created_at": document.created_at.isoformat(),
             }
@@ -300,7 +325,6 @@ def list_documents(
 def get_document(
     document_id: int,
     db: Annotated[Session, Depends(get_db)],
-    storage: Annotated[FileStorage, Depends(get_storage)],
 ) -> dict[str, Any]:
     """Chi tiết một chứng từ: dữ liệu trích xuất mới nhất + toàn bộ qc_results."""
     document = db.get(Document, document_id)
@@ -310,7 +334,7 @@ def get_document(
             detail="Chứng từ không tồn tại.",
         )
     extraction = _latest_extraction(db, document_id)
-    return _document_detail(document, extraction, storage)
+    return _document_detail(document, extraction)
 
 
 @router.get("/{document_id}/file")
