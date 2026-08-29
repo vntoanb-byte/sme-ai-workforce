@@ -362,7 +362,51 @@ Do not:
 
 **Task: TASK-006 — Luồng upload chứng từ → AI đọc → QC → xem kết quả (bản tối giản, bỏ qua workflow/employee/job_queue)**
 
-**Status:** ASSIGNED (2026-08-29) — Owner muốn thấy 1 luồng THẬT chạy được ngay trong ngày. Claude Code (Architect) quyết định CẮT PHẠM VI có chủ đích khỏi lộ trình gốc (domain/templates → services/* đầy đủ → 8 router) để ưu tiên 1 lát cắt dọc (vertical slice) demo được — xem "Phạm vi bị cắt" bên dưới.
+**Status:** DONE (2026-08-29) — Cline hiện thực phần lõi (schemas/services/api/deps/main), CRASH giữa chừng do lỗi nội bộ CLI (`hook dispatch failed`, không liên quan encoding/model) TRƯỚC khi kịp viết test. Claude Code tự đọc lại toàn bộ code Cline đã viết (không hỏng, đã tự sửa xong 1 file bị chèn lộn code trước khi crash), viết đủ 3 file test còn thiếu, tự review VÀ PHÁT HIỆN + SỬA 4 bug thật (1 nghiêm trọng — xem bên dưới).
+
+Owner muốn thấy 1 luồng THẬT chạy được ngay trong ngày. Claude Code (Architect) quyết định CẮT PHẠM VI có chủ đích khỏi lộ trình gốc (domain/templates → services/* đầy đủ → 8 router) để ưu tiên 1 lát cắt dọc (vertical slice) demo được — xem "Phạm vi bị cắt" bên dưới.
+
+**Sự cố Cline (2026-08-29):** Cline viết xong 9/10 file lõi đúng spec, nhưng khi tự sửa lỗi cấu trúc trong `documents.py` (code bị chèn lộn giữa các hàm) thì CLI crash với `hook dispatch failed: session.hook requires a valid hook event payload` + `The request body was rejected by the upstream provider as invalid`. Đọc lại log xác nhận: bản sửa cuối cùng của Cline ĐÃ ĐÚNG (compile sạch, không còn code lộn xộn) — crash xảy ra SAU khi sửa xong, khi Cline đang chuẩn bị bước tiếp theo. Claude Code không dispatch lại Cline (tránh rủi ro crash lần 2 tốn thêm lượt gọi) mà tự hoàn thiện phần còn thiếu (viết test) và tự review toàn bộ.
+
+**4 bug thật Claude Code phát hiện + tự sửa khi review (đọc code thật + chạy `uvicorn app.main:app` thật, không chỉ tin pytest):**
+1. **🔴 NGHIÊM TRỌNG — Import vòng vỡ khi khởi động server thật:** `uvicorn app.main:app` (lệnh Owner sẽ dùng để chạy app) CRASH ngay lập tức với `ImportError: cannot import name 'Artifact' from partially initialized module 'app.models.artifact' (circular import)`. Nguyên nhân: `app/api/v1/documents.py` import trực tiếp `app.models.artifact` — nếu đây là lần đầu tiên module đó được nạp (đúng trường hợp khi `uvicorn` nạp `app.main` từ đầu), nó kích hoạt `app.db.base` nạp LẦN ĐẦU, và `db/base.py` tự import ngược lại `app.models.artifact` trong khi module đó CHƯA nạp xong (mới chạy tới dòng import `Base`) → lỗi. `pytest` KHÔNG lộ ra bug này vì `tests/conftest.py` (Claude tự viết) tình cờ `from app.db.base import Base` TRƯỚC `from app.main import app`, khiến chuỗi model đã nạp xong sẵn trước khi `app.main` chạy. **Đã tự xác minh bằng cách chạy `uvicorn` thật** (không chỉ đọc code) — lỗi tái hiện, sau đó sửa `main.py` (thêm `from app.db.base import Base` TRƯỚC `from app.api.v1 import api_router`, có `# noqa: I001` vì thứ tự này cố ý ngược isort) — chạy lại `uvicorn` thật, `/health` PASS, `POST /api/v1/documents` thật (curl, ảnh PNG thật tự tạo) trả 200 thành công.
+2. `app/api/v1/documents.py` — `list_documents()`: cột `qc_failed` dựng từ `scalar_subquery()` nhưng `.label("qc_failed")` bị gắn nhầm vào cột BÊN TRONG subquery thay vì chính `scalar_subquery()` — SQLAlchemy đặt tên cột ẩn danh, `row.qc_failed` ném `AttributeError` khi có ≥1 document trong danh sách. Lỗi này pytest CÓ bắt được (integration test `test_list_documents_reflects_uploaded_document` fail thật) — đã sửa bằng cách chuyển `.label("qc_failed")` ra ngoài `.scalar_subquery()`.
+3. `app/utils/images.py` — `Image.LANCZOS` chạy được thật (Pillow 11.3.0 giữ alias tương thích ngược) nhưng type stub không còn khai báo (mypy báo lỗi) — đổi sang `Image.Resampling.LANCZOS` (API hiện hành từ Pillow 9.1+).
+4. `app/services/document_service.py` — `_ensure_artifact()`: biến `artifact` được gán 2 kiểu khác nhau (`Artifact` rồi `Artifact | None`) trong 2 nhánh `if` khác nhau của cùng 1 hàm khiến mypy báo lỗi gán kiểu không tương thích — đổi tên biến nhánh thứ 2 thành `existing_artifact: Artifact | None` tường minh.
+
+**Evidence — pytest (Claude tự viết `tests/conftest.py` + 3 file test, tự chạy lại):**
+```
+collected 94 items
+tests\integration\test_api_documents.py ...........                      [ 11%]
+tests\unit\test_compiler.py ..............                               [ 26%]
+tests\unit\test_document_service.py ......                               [ 32%]
+tests\unit\test_models_group_a.py .......                                [ 40%]
+tests\unit\test_models_group_d.py ................                       [ 57%]
+tests\unit\test_qc_service.py ....                                       [ 61%]
+tests\unit\test_queue_sqlite.py ..........                               [ 72%]
+tests\unit\test_storage_local.py .........                               [ 81%]
+tests\unit\test_validators.py .................                          [100%]
+94 passed in 2.56s
+```
+(baseline 73 → 94, +21 test: 15 unit mới `test_document_service.py`/`test_qc_service.py` + 6 tận dụng lại chỗ trống `tests/integration/test_api_documents.py` — file stub gốc đã có sẵn tên, Claude phát hiện và điền vào ĐÚNG file đó thay vì tạo file trùng tên mới)
+
+**Evidence — ruff:** `ruff check` trên toàn bộ 14 file Allowed files + test → `All checks passed!`. `ruff check .` (toàn dự án) → 38 lỗi (không đổi so với TASK-005b, không phát sinh mới từ TASK-006).
+
+**Evidence — mypy:** `mypy --follow-imports=silent` trên 9 file nguồn TASK-006 → `Success: no issues found in 9 source files` (dùng `--follow-imports=silent` để không kéo theo lỗi có sẵn của `domain/qc_rules.py`, đã phát hiện thêm 1 lỗi mypy debt cũ ở đó — NGOÀI PHẠM VI, không sửa, ghi vào Ghi chú bên dưới).
+
+**Evidence — chạy SERVER THẬT (không phải TestClient), sau khi sửa bug #1:**
+```
+uvicorn app.main:app --port 8123
+GET /health -> {"ok":true,"checks":{"database":{"ok":true},"storage":{"ok":true,...},"llm":{"ok":true,"status_code":200}}}
+POST /api/v1/documents (multipart, ảnh PNG thật tự tạo bằng PIL) -> 200
+  {"id":1,"filename":"test_invoice.png","status":"failed", ...}
+```
+`status="failed"` là ĐÚNG NHƯ MONG ĐỢI — đối chiếu `scripts/test_llm.py` (chạy thật) xác nhận `LLM_API_KEY` trong `.env` vẫn là placeholder → lỗi 401 thật từ OpenRouter, được `document_service.ingest()` bắt đúng và trả `status=failed` thay vì crash 500. Đã test thêm `GET /api/v1/documents` (thấy đúng document trong danh sách) và `GET /api/v1/documents/1/file` (tải lại đúng byte-for-byte file gốc, xác nhận bằng `cmp`). **Owner điền `LLM_API_KEY` thật vào `backend/.env` là có thể thấy trích xuất thật thành công ngay** — không cần sửa code gì thêm.
+Đã dọn lại 2 bản ghi test (`documents`/`artifacts` id=1) khỏi `data/app.db` sau khi verify xong, để DB dev sạch cho Owner tự thử.
+
+**Ghi chú/giả định cần Toàn xác nhận lại** (đã ghi NOTE trong code, xem Requirements ở trên): (1) trích xuất đồng bộ không qua job_queue; (2) không auth cho endpoint documents (CẢNH BÁO BẢO MẬT tạm thời); (3) `Party.tax_code`/`Totals.vat_rate` viết lỏng hơn mô tả gốc; (4) `deskew()` chưa hiện thực (no-op).
+
+**Nợ kỹ thuật phát hiện thêm (KHÔNG sửa, ngoài phạm vi TASK-006):** `mypy` phát hiện `app/domain/qc_rules.py:120` có lỗi `union-attr` có sẵn (chưa từng bị `mypy` bắt vì trước giờ chỉ chạy `mypy` trên từng file lẻ, chưa ai chạy với `--follow-imports` kéo theo file này) — gộp chung vào task dọn lint/type debt đã tách riêng trước đó (`task_b232c26f`).
 
 Goal:
 Người dùng tải 1 ảnh hoá đơn lên qua API thật → hệ thống gọi LLM thật (Qwen3-VL qua OpenRouter, cần `LLM_API_KEY` thật trong `backend/.env`, Owner tự điền) → chạy 8 quy tắc QC → trả về kết quả đầy đủ (JSON) để xem được thật, không qua mock.

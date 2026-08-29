@@ -4,33 +4,45 @@
 Tạo đối tượng FastAPI, gắn middleware, đăng ký bộ xử lý lỗi, include router
 v1, phục vụ file tĩnh của giao diện React đã build, và khởi động bộ lập lịch.
 
-TRẠNG THÁI (2026-08-27): bản RÚT GỌN có chủ đích — chỉ đủ để `make dev-api`
-khởi động thật và có 1 điểm cuối /health kiểm tra được DB + kho tệp + máy chủ
-mô hình. CHƯA làm (vì các file phụ thuộc vẫn là stub, xem 08-apps/README.md
-trong OS Brain / memory.md của project để biết lý do):
-  - include_router(api_v1_router) — 8 router trong api/v1/*.py vẫn là stub.
-  - Exception handler cho AppError/RequestValidationError — core/errors.py
-    vẫn là stub.
-  - Middleware trace_id, CORS, mount StaticFiles('frontend/dist').
-  - Sự kiện startup chạy Alembic/seed/scheduler — models/*.py và
-    workers/scheduler.py vẫn là stub.
-Khi các phần trên được hiện thực, bổ sung dần vào đây theo đúng danh sách
-"Cần hiện thực" gốc (xem lịch sử/`04 - references` trong OS Brain nếu cần
-đối chiếu lại bản gốc).
+TRẠNG THÁI (2026-08-29, TASK-006): thêm CORS (settings.CORS_ORIGINS) và mount
+router /api/v1 (hiện chỉ có documents — 8 router còn lại vẫn là stub). Vẫn
+CHƯA làm (file phụ thuộc vẫn stub, làm ở task sau):
+  - Exception handler cho AppError/RequestValidationError — core/errors.py stub.
+  - Middleware trace_id, mount StaticFiles('frontend/dist').
+  - Sự kiện startup chạy Alembic/seed/scheduler — workers/scheduler.py stub.
 """
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 from pathlib import Path
 
 import httpx
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
+# PHẢI import app.db.base TRƯỚC app.api.v1: nạp trọn chuỗi model qua
+# db/base.py để tránh import vòng vỡ giữa chừng khi router (vd.
+# app/api/v1/documents.py) import trực tiếp 1 model cụ thể trước khi
+# app.db.base kịp nạp xong toàn bộ 21 bảng (phát hiện thật khi chạy
+# `uvicorn app.main:app` — pytest không lộ vì tests/conftest.py tình cờ import
+# app.db.base trước app.main). Thứ tự dòng dưới đây CỐ Ý không theo isort.
+from app.db.base import Base  # noqa: F401
+from app.api.v1 import api_router
 from app.core.config import settings
 from app.db.session import SessionLocal
 
 app = FastAPI(title="SME AI Workforce API", openapi_url="/api/v1/openapi.json")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(api_router, prefix="/api/v1")
 
 
 @app.get("/health")

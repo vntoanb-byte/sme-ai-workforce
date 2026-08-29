@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     CREDENTIAL_ENC_KEY: str = ""
     MAX_UPLOAD_MB: int = 20
 
+    # ─── CORS ───
+    # Danh sách origin được phép gọi API. Mặc định là dev server Vite; khi
+    # deploy thật phải đổi theo domain thật.
+    CORS_ORIGINS: list[str] = ["http://localhost:5173"]
+
     # ─── Tài khoản quản trị đầu tiên ───
     FIRST_ADMIN_USERNAME: str = "admin"
     FIRST_ADMIN_PASSWORD: str = ""

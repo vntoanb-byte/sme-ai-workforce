@@ -50,3 +50,29 @@
 3. `RunLog` dùng 1 bảng cho cả log transition (`domain/state.py`) lẫn log SSE stream.
 
 **Lưu ý còn tồn:** `scripts/verify` toàn dự án vẫn FAIL vì lint debt cũ — nhưng đã giảm từ 41 → 38 lỗi (task `task_b232c26f` xử lý sau, không liên quan TASK-005b).
+
+## Task đã xong: TASK-006 — Luồng upload chứng từ → AI đọc → QC (bản tối giản)
+
+- [x] Requirement satisfied — đủ 10 file lõi (schemas/invoice.py, utils/hashing.py+images.py, 2 services, api/deps.py, api/v1/documents.py+__init__.py, main.py) + 3 file test
+- [x] SPEC satisfied — khớp `frontend/src/api/types.ts` (DocumentRow/DocumentDetail/QCResult), `domain/qc_rules.py`, `ports/llm.py`/`ports/storage.py`
+- [x] Code implemented — Cline viết phần lõi (crash giữa chừng do lỗi CLI nội bộ, không phải lỗi code — xem IMPLEMENTATION_PLAN.md), Claude Code hoàn thiện test + tự sửa 4 bug thật khi review
+- [x] Unit tests passed — evidence: `pytest -v` → `94 passed` (baseline 73 + 21 mới)
+- [x] Integration tests passed — `tests/integration/test_api_documents.py` (11 test, FastAPI TestClient + fake LLM) PASS; **quan trọng hơn:** đã tự chạy `uvicorn app.main:app` THẬT (không phải TestClient) + `curl` upload ảnh thật → 200, `GET /documents`/`GET /documents/{id}/file` đúng dữ liệu (đối chiếu byte-for-byte bằng `cmp`)
+- [x] Build passed — `npm typecheck`/`npm build` PASS qua `scripts/verify`
+- [x] Security checked — `# TODO SECURITY` ghi rõ trong `documents.py` (chưa có auth, quyết định có chủ đích TASK-006); giới hạn `MAX_UPLOAD_MB` chặn trước khi đọc hết file vào RAM
+- [x] No secrets committed — `scripts/verify` mục "Secret scan (diff)" → PASS; không in `LLM_API_KEY`/`accessToken` ra bất kỳ đâu
+- [x] Architecture respected — `domain/qc_rules.py` không bị sửa, `services/` không import `api/`; tiền tệ `Decimal`/`Numeric`, không `float`
+- [x] No forbidden changes — không đụng `models/*.py` (TASK-005a/b), không đụng `domain/*.py`; `core/config.py` chỉ thêm đúng 1 field `CORS_ORIGINS` (ngoại lệ duy nhất được phép trong Requirements)
+- [x] Documentation updated — `IMPLEMENTATION_PLAN.md` cập nhật đầy đủ evidence + 4 bug đã sửa + sự cố Cline crash
+
+**4 bug thật đã phát hiện + tự sửa khi review (1 nghiêm trọng):**
+1. **🔴 Import vòng vỡ khi chạy `uvicorn app.main:app` thật** — server crash ngay khi khởi động (pytest không phát hiện vì `conftest.py` tình cờ che mất thứ tự import). Bug ảnh hưởng đúng con đường Owner sẽ dùng để chạy app thật — mức độ nghiêm trọng cao nhất trong các bug đã gặp từ đầu dự án.
+2. `list_documents()`: `qc_failed` scalar_subquery thiếu `.label()` đúng chỗ → `AttributeError` khi có document trong danh sách (pytest bắt được).
+3. `utils/images.py`: `Image.LANCZOS` (stub cũ) → `Image.Resampling.LANCZOS`.
+4. `document_service.py`: biến `artifact` bị gán 2 kiểu khác nhau giữa 2 nhánh if → tách biến `existing_artifact`.
+
+**Sự cố quy trình:** Cline CLI crash giữa nhiệm vụ (lỗi nội bộ `hook dispatch failed`, không phải lỗi model/encoding) sau khi đã sửa xong code (xác nhận qua đọc log — bản sửa cuối cùng đúng). Claude Code không dispatch lại mà tự hoàn thiện phần còn thiếu (test) + tự review, tránh rủi ro crash lần 2.
+
+**Giả định cần Toàn xác nhận (NOTE trong code):** (1) trích xuất đồng bộ, không qua job_queue; (2) chưa có auth cho endpoint documents; (3) `Party.tax_code`/`Totals.vat_rate` viết lỏng để QC bắt lỗi thay vì Pydantic chặn cứng; (4) `deskew()` chưa hiện thực.
+
+**Lưu ý còn tồn:** `scripts/verify` vẫn FAIL vì lint debt cũ (38 lỗi, không đổi). Phát hiện thêm 1 lỗi mypy debt cũ trong `domain/qc_rules.py` (chưa từng bị bắt vì trước giờ chỉ chạy mypy từng file lẻ) — gộp vào task dọn debt đã tách riêng. **Owner cần điền `LLM_API_KEY` thật vào `backend/.env` để thấy trích xuất AI thành công** — hiện tại toàn bộ pipeline đã chạy đúng, chỉ thiếu key thật.
