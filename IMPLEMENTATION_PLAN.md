@@ -360,6 +360,186 @@ Do not:
 
 **Sau TASK-005b:** `domain/templates/*.py` (đối chiếu lại 5 mã `TemplateCode`) → `services/*` → `api/v1/*` → `tools/*` → `agents/crew.py` (đọc ADR-002 trước) → `workers/*` → cuối cùng nối frontend vào API thật.
 
+**Task: TASK-006 — Luồng upload chứng từ → AI đọc → QC → xem kết quả (bản tối giản, bỏ qua workflow/employee/job_queue)**
+
+**Status:** ASSIGNED (2026-08-29) — Owner muốn thấy 1 luồng THẬT chạy được ngay trong ngày. Claude Code (Architect) quyết định CẮT PHẠM VI có chủ đích khỏi lộ trình gốc (domain/templates → services/* đầy đủ → 8 router) để ưu tiên 1 lát cắt dọc (vertical slice) demo được — xem "Phạm vi bị cắt" bên dưới.
+
+Goal:
+Người dùng tải 1 ảnh hoá đơn lên qua API thật → hệ thống gọi LLM thật (Qwen3-VL qua OpenRouter, cần `LLM_API_KEY` thật trong `backend/.env`, Owner tự điền) → chạy 8 quy tắc QC → trả về kết quả đầy đủ (JSON) để xem được thật, không qua mock.
+
+**Quyết định kiến trúc quan trọng cho task này (Claude tự quyết, cần Toàn xác nhận lại):**
+1. **Trích xuất chạy ĐỒNG BỘ ngay trong `POST /documents`** (gọi LLM, chờ trả lời, chạy QC, rồi mới response) — KHÔNG qua `job_queue`/worker. Lý do: `workers/*.py` (worker + scheduler) vẫn là stub, ngoài phạm vi hôm nay; khớp acceptance criteria "≤25s/hoá đơn" nên chờ đồng bộ chấp nhận được cho demo. Luồng qua `job_queue` (chạy nền, theo lịch, qua `AIEmployee`/`Workflow`) làm ở task RIÊNG sau khi có `workers/*.py` + `domain/templates/*.py`.
+2. **KHÔNG cần đăng nhập/JWT cho task này** — `api/deps.py` chỉ hiện thực `get_db()`/`get_llm()`/`get_storage()`, KHÔNG làm `get_current_user()`/`require_role()` (cần `models/user.py` + JWT, việc riêng). Endpoint `documents` tạm thời KHÔNG bảo vệ bằng auth — **CẢNH BÁO BẢO MẬT tạm thời, phải thêm auth trước khi deploy thật**, ghi rõ trong code bằng `# TODO SECURITY`.
+3. **KHÔNG dùng `core/errors.py`** (cây `AppError` đầy đủ) — dùng thẳng `fastapi.HTTPException` trong router cho task này, đơn giản hoá. Nâng cấp lên `AppError` là việc sau.
+4. **Chỉ mount router `documents` vào `api/v1/__init__.py`** — 7 router còn lại (auth, employees, workflows, runs, reviews, reports, tools, admin) vẫn là docstring stub, KHÔNG import (import sẽ lỗi vì chưa có `router = APIRouter()`).
+5. **`utils/images.py`: CHỈ làm `exif_transpose` + resize theo cạnh dài** (`IMAGE_MAX_LONG_EDGE`, `IMAGE_MAX_PIXELS`) — **BỎ QUA `deskew()` (biến đổi Hough)** cho task này, để `deskew()` là hàm riêng trả nguyên ảnh không đổi kèm `# TODO: chưa hiện thực deskew Hough`. Lý do: deskew là thuật toán CV riêng biệt, không chặn việc thấy luồng chạy được hôm nay, làm sau nếu ảnh nghiêng thật gây sai kết quả.
+
+Allowed files:
+- `backend/app/schemas/invoice.py`
+- `backend/app/utils/hashing.py`
+- `backend/app/utils/images.py`
+- `backend/app/services/document_service.py`
+- `backend/app/services/qc_service.py`
+- `backend/app/api/deps.py`
+- `backend/app/api/v1/documents.py`
+- `backend/app/api/v1/__init__.py`
+- `backend/app/main.py`
+- `backend/tests/unit/test_document_service.py` (mới)
+- `backend/tests/unit/test_qc_service.py` (mới)
+- `backend/tests/integration/test_documents_api.py` (mới — dùng FastAPI `TestClient`, LLM giả lập bằng fake `LLMProvider`, KHÔNG gọi mạng thật trong test)
+
+Requirements:
+
+### `schemas/invoice.py`
+Pydantic v2, `model_config = ConfigDict(extra="forbid")` (giữ đúng phong cách `workflow_spec.py`):
+```python
+SCHEMA_VERSION = "invoice_v1"
+
+class Party(BaseModel):
+    name: str
+    tax_code: str | None = None   # pattern 10 hoặc 13 số, validate ở service layer bằng domain/qc_rules QC-04, KHÔNG ràng buộc regex cứng ở đây (mã có thể chưa đủ 10 số lúc AI đọc nhầm — để QC-04 báo lỗi thay vì Pydantic chặn thẳng)
+    address: str | None = None
+
+class LineItem(BaseModel):
+    line_no: int
+    description: str
+    unit: str
+    quantity: Decimal
+    unit_price: Decimal
+    amount: Decimal
+
+class Totals(BaseModel):
+    subtotal: Decimal
+    vat_rate: Decimal   # KHÔNG dùng Literal[0,5,8,10] cứng — để QC-03 (domain/qc_rules.py) báo lỗi khi AI đọc sai, Pydantic chỉ ép kiểu Decimal
+    vat_amount: Decimal
+    total: Decimal
+
+class InvoiceExtraction(BaseModel):
+    invoice_no: str
+    invoice_form: str | None = None
+    issue_date: date
+    currency: str = "VND"
+    seller: Party
+    buyer: Party | None = None
+    line_items: list[LineItem]
+    totals: Totals
+```
+**NOTE bắt buộc ghi trong code:** `Totals.vat_rate`/`Party.tax_code` cố ý viết lỏng hơn mô tả gốc (bỏ `Literal[0,5,8,10]`, bỏ `pattern`) — vì `domain/qc_rules.py` (đã hiện thực, đã test) đã coi các sai lệch này là dữ liệu AI đọc SAI cần QC-03/QC-04 bắt lỗi và báo `needs_review`, không phải lỗi hệ thống cần chặn cứng ở tầng Pydantic (chặn cứng sẽ làm cả request lỗi 422 thay vì lưu lại kèm cảnh báo QC — sai mục tiêu "human-in-the-loop" của `AGENTS.md`). Cần Toàn xác nhận lại.
+Thêm hàm `invoice_json_schema() -> dict` trả về `InvoiceExtraction.model_json_schema()` dùng làm tham số `schema=` khi gọi `llm.complete()`. **CẢNH BÁO ghi trong code:** JSON Schema sinh từ `Decimal` có thể không tương thích 100% với `guided_json` của vLLM (một số backend guided-decoding không hỗ trợ `anyOf`/`format` mà Pydantic sinh cho Decimal) — nếu khi Owner test thật gặp lỗi `LLMInvalidOutput`, đây là nghi phạm đầu tiên cần kiểm tra, KHÔNG tự đổi sang `float`.
+
+### `utils/hashing.py`
+```python
+def sha256_bytes(data: bytes) -> str: ...
+def sha256_stream(fileobj: BinaryIO, chunk_size: int = 65536) -> str: ...  # đọc theo khối 64KB, không load hết file vào RAM
+```
+
+### `utils/images.py`
+```python
+def preprocess(img: PIL.Image.Image) -> PIL.Image.Image:
+    # thứ tự: ImageOps.exif_transpose -> deskew (no-op ở task này) -> resize theo
+    # cạnh dài (settings.IMAGE_MAX_LONG_EDGE) với Image.LANCZOS, trần
+    # settings.IMAGE_MAX_PIXELS -> convert("RGB")
+
+def deskew(img: PIL.Image.Image) -> PIL.Image.Image:
+    # TODO: chưa hiện thực biến đổi Hough — trả nguyên ảnh không đổi (no-op có
+    # chủ đích, ghi rõ NOTE, KHÔNG được âm thầm bỏ qua yêu cầu gốc mà không ghi chú).
+    return img
+```
+
+### `services/document_service.py`
+```python
+def ingest(
+    db: Session, storage: FileStorage, llm: LLMProvider,
+    file_bytes: bytes, filename: str, content_type: str | None,
+) -> Document:
+    """Luồng đầy đủ: lưu file (khử trùng) -> tạo Artifact+Document -> tiền xử
+    lý ảnh -> gọi LLM trích xuất (schema=invoice_json_schema()) -> tạo
+    Extraction -> gọi qc_service.evaluate() -> cập nhật Document.status -> trả
+    về Document đã load đủ quan hệ (KHÔNG tự commit — caller ở api/v1/documents.py
+    commit sau khi toàn bộ flow xong, để 1 lỗi giữa chừng rollback được cả).
+
+    Nếu file KHÔNG phải image/pdf theo content_type: Document.status='rejected',
+    KHÔNG gọi LLM.
+    Nếu LLM ném LLMTimeout/LLMUnavailable/LLMInvalidOutput: bắt lại, tạo
+    Document.status='failed', KHÔNG để lỗi văng ra ngoài làm crash request (trả
+    Document với status failed, KHÔNG phải HTTP 500 — người dùng vẫn thấy chứng
+    từ trong danh sách, biết là lỗi, thử lại sau khi Owner sửa LLM_API_KEY).
+    """
+```
+Khử trùng: dùng `sha256_bytes()` trước, gọi `storage.exists(sha256)` — nếu đã tồn tại, KHÔNG tạo `Artifact` mới (dùng lại `Artifact` cũ theo `sha256`), vẫn tạo `Document` MỚI trỏ tới `artifact_id` đó (2 lần upload cùng file = 2 `Document` khác nhau, đúng theo `Document`/`Artifact` là quan hệ 1-nhiều đã thiết kế ở TASK-005b — KHÔNG chặn upload trùng ở tầng này, việc chặn trùng "sớm" là của endpoint `POST /documents/presign`).
+
+### `services/qc_service.py`
+```python
+def evaluate(
+    db: Session, extraction: Extraction,
+) -> bool:  # trả về needs_review
+    """Gọi domain/qc_rules.run_qc(data, existing_invoice_numbers) với `data` =
+    chính đối tượng `extraction` (đã có đủ thuộc tính invoice_no/issue_date/...
+    theo cấu trúc InvoiceExtraction nhờ denormalize ở TASK-005b — xem NOTE
+    models/extraction.py) — KHÔNG cần dựng lại object từ extracted_data_json.
+    existing_invoice_numbers: SELECT invoice_no FROM extractions WHERE
+    invoice_no IS NOT NULL AND id != extraction.id (dùng cho QC-06).
+    Ghi 1 dòng QCResult (models/extraction.py) cho MỖI kết quả trả về từ
+    run_qc(), gắn extraction_id. KHÔNG tự commit.
+    """
+```
+**Lưu ý khớp kiểu:** `extraction.issue_date` là `datetime.date` (cột `Date`), `qc_rules.py` dùng `_get(data, "issue_date")` rồi so sánh với `date`/`datetime` — đã tương thích, không cần convert. `extraction.seller_name`/`seller_tax_code` là 2 cột phẳng, nhưng `qc_rules.py` đọc qua path `"seller.name"`/`"seller.tax_code"` (object lồng nhau!) — **Extraction (ORM) KHÔNG có thuộc tính `seller` lồng nhau**, chỉ có `seller_name`/`seller_tax_code` phẳng. **PHẢI dựng 1 object/dict trung gian** khớp đúng cấu trúc `InvoiceExtraction` (`{seller: {name, tax_code}, totals: {subtotal, vat_rate, vat_amount, total}, invoice_no, issue_date}`) từ các cột phẳng của `Extraction` TRƯỚC khi gọi `run_qc()` — KHÔNG truyền thẳng đối tượng `Extraction` ORM vào `run_qc()` (sẽ đọc `seller.name` ra `None` sai, làm QC-04/QC-07 luôn fail giả). Đây là điểm dễ sai nhất của task này — Cline đọc kỹ `qc_rules.py` dòng 7-11 (docstring cấu trúc `data`) trước khi viết.
+
+### `api/deps.py`
+```python
+def get_db() -> Generator[Session, None, None]: ...  # SessionLocal(), close() ở finally
+def get_llm() -> LLMProvider: ...  # trả về instance OpenAICompatibleLLM (adapters/llm_openai_compatible.py) dựng từ settings
+def get_storage() -> FileStorage: ...  # trả về LocalFileStorage (adapters/storage_local.py) dựng từ settings.STORAGE_PATH
+```
+KHÔNG viết `get_current_user()`/`require_role()` trong task này (xem Quyết định #2).
+
+### `api/v1/documents.py`
+- `POST /documents/presign` — body `{sha256: str}` → `{"exists": bool}` (gọi `storage.exists(sha256)`, KHÔNG đọc DB).
+- `POST /documents` — multipart file, gọi `document_service.ingest()`, `db.commit()`, trả `DocumentDetail`-shape JSON (khớp `frontend/src/api/types.ts` `DocumentDetail`: id, filename, source_kind, status, invoice_no, issue_date, seller_name, total, qc_failed, created_at, file_url, schema_version, model_name, confidence, latency_ms, data, qc[]) — `data` dựng từ `extracted_data_json` (parse JSON), `qc` từ `qc_results` vừa tạo. Giới hạn dung lượng: từ chối > `settings.MAX_UPLOAD_MB` bằng `HTTPException(413, ...)` TRƯỚC khi đọc hết file vào RAM.
+- `GET /documents` — query `status`/`from`/`to` (lọc theo `issue_date` của extraction mới nhất) + phân trang `limit`/`offset` — JOIN `Document` với `Extraction` mới nhất theo `document_id` (subquery `ORDER BY created_at DESC LIMIT 1`) để trả `invoice_no/issue_date/seller_name/total`; `qc_failed` = đếm `QCResult.passed=False` của extraction đó. Trả danh sách khớp `DocumentRow[]`.
+- `GET /documents/{id}` — tương tự nhưng đủ trường `DocumentDetail` (extraction mới nhất + toàn bộ `qc_results` của nó). 404 nếu không có.
+- `GET /documents/{id}/file` — `StreamingResponse` từ `storage.open(ArtifactRef(...))` dựng từ `Document.artifact` (sha256/path/size_bytes/content_type).
+- **KHÔNG làm** `PATCH /documents/{id}/extraction` trong task này (để sau).
+
+### `api/v1/__init__.py`
+```python
+from fastapi import APIRouter
+from app.api.v1 import documents
+
+api_router = APIRouter()
+api_router.include_router(documents.router, prefix="/documents", tags=["documents"])
+# 7 router còn lại (auth, employees, workflows, runs, reviews, reports, tools,
+# admin) CHƯA include — vẫn là docstring stub, thêm dần khi hiện thực.
+```
+
+### `main.py`
+- Thêm `from app.api.v1 import api_router` + `app.include_router(api_router, prefix="/api/v1")`.
+- Thêm `CORSMiddleware` cho phép origin `http://localhost:5173` (Vite dev server) — **thêm setting mới `CORS_ORIGINS: list[str] = ["http://localhost:5173"]` vào `core/config.py`** (file NGOÀI Allowed files ở trên — nếu cần sửa, đây là ngoại lệ DUY NHẤT được phép, chỉ thêm 1 dòng field mới, không sửa field khác).
+- KHÔNG thêm exception handler/static mount/scheduler startup (giữ nguyên "bản rút gọn có chủ đích" như comment đầu file hiện tại, cập nhật lại comment cho khớp trạng thái mới).
+
+**Phạm vi bị CẮT khỏi task này (làm sau, KHÔNG tự làm thêm):**
+- `domain/templates/*.py`, tạo/duyệt nhân viên AI, lập lịch, `agents/crew.py`, `workers/*.py` — luồng qua `job_queue`/chạy nền theo lịch.
+- Đăng nhập/JWT/phân quyền cho toàn bộ API.
+- `PATCH /documents/{id}/extraction` (sửa tay của con người).
+- `core/errors.py` (cây lỗi có cấu trúc).
+- `deskew()` ảnh nghiêng thật (Hough transform).
+- Nối frontend (làm ở TASK-007 sau khi TASK-006 review xong).
+
+Must pass:
+- `cd backend && .venv/Scripts/pytest.exe -v` — toàn bộ pass, không giảm số test hiện có (73).
+- `ruff check` + `mypy` trên toàn bộ file trong Allowed files → sạch.
+- `tests/integration/test_documents_api.py` dùng FastAPI `TestClient` + fake `LLMProvider` (implement Protocol, trả `LLMResult` giả lập cố định) — test tối thiểu: (1) upload 1 ảnh giả → 200, `status` là `ok` hoặc `needs_review` tuỳ dữ liệu giả; (2) `GET /documents` trả đúng danh sách; (3) `GET /documents/{id}` trả đủ `qc[]`; (4) upload file không phải ảnh/pdf → `status=rejected`; (5) fake LLM ném `LLMUnavailable` → `status=failed`, response vẫn 200 (không phải 500).
+- Chạy `make dev-api` (hoặc `uvicorn app.main:app`) thật, gọi `GET /health` vẫn PASS như cũ (không phá vỡ endpoint sẵn có).
+
+Do not:
+- Sửa `models/*.py` (TASK-005a/b đã DONE)
+- Sửa `domain/*.py` (đã DONE, đã test)
+- Làm thêm router nào khác ngoài `documents`
+- Thêm auth/JWT (ngoài phạm vi, xem Quyết định #2)
+- Đổi `schemas/workflow_spec.py`
+- Thêm dependency mới (mọi thứ cần đã có trong `requirements.txt`: `fastapi`, `pydantic`, `Pillow`, `pypdfium2`)
+- Tự ý làm `deskew()` thật hoặc `PATCH /documents/{id}/extraction` (đã cắt phạm vi, xem trên)
+
 **Files affected (TASK-001):**
 - `backend/app/domain/validators.py` (mới, hiện thực đầy đủ)
 - `backend/tests/unit/test_validators.py` (mới, 17 test)
