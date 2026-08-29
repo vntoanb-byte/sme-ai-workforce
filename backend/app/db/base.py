@@ -7,7 +7,7 @@ thấy.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import DateTime
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -19,12 +19,12 @@ class Base(DeclarativeBase):
 
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
     )
 
 
@@ -35,12 +35,11 @@ class TimestampMixin:
 # Base/TimestampMixin trong namespace (dù chưa chạy hết file) — đã verify
 # thật bằng cách import module + gọi Base.metadata.create_all().
 #
-# Nhóm A/B/C (TASK-005a, 2026-08-28):
+# Nhóm A/B/C (TASK-005a, 2026-08-28) + Nhóm D-G (TASK-005b, 2026-08-29):
+from app.models.artifact import Artifact, Document  # noqa: E402,F401
+from app.models.audit import AuditLog, LlmCall, Setting  # noqa: E402,F401
 from app.models.employee import AIEmployee, Schedule  # noqa: E402,F401
+from app.models.extraction import Extraction, HumanReview, QCResult  # noqa: E402,F401
+from app.models.run import JobQueueEntry, Run, RunLog, RunStep  # noqa: E402,F401
 from app.models.user import Role, User, user_roles  # noqa: E402,F401
 from app.models.workflow import Tool, Workflow, WorkflowEdge, WorkflowStep  # noqa: E402,F401
-
-# NOTE: app/models/run.py, extraction.py, artifact.py, audit.py VẪN LÀ STUB
-# tại thời điểm sửa file này (TASK-005a, 2026-08-28) — chưa có class SQLAlchemy
-# nào để import. Khi TASK-005b hiện thực xong, thêm import tương tự ở đây.
-# Thiếu bước này, Alembic autogenerate sẽ không thấy bảng mới.
