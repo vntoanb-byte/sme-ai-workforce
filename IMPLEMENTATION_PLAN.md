@@ -646,6 +646,8 @@ Goal: bật `VITE_USE_MOCK=false` cho trang Chứng từ (Documents), để Owne
 
 **Evidence — frontend:** `npm run typecheck` sạch sau mọi thay đổi.
 
+**Bug #6 (phát hiện SAU khi báo DONE, do Toàn hỏi "mấy cái khác thì chưa nối backend hả"):** `VITE_USE_MOCK=false` là công tắc TOÀN CỤC — bật lên khiến CẢ APP (Dashboard, Employees, Runs, Reports...) đều cố gọi backend thật, nhưng backend chỉ có router `documents`. Xác nhận thật bằng Browser pane: mở `/` (Dashboard) sau khi bật cờ → lỗi "Hệ thống gặp sự cố không xác định" (500, backend không có route đó). Sửa `client.ts`: đổi từ `MOCK_ONLY_PATHS` (danh sách CẤM dùng thật, chỉ có `/auth/`) sang `REAL_BACKEND_PATHS` (danh sách CHO PHÉP dùng thật, chỉ có `/documents`) — an toàn hơn về hướng mặc định (thêm router mới vào danh sách khi hiện thực xong, thay vì phải nhớ trừ ra). Verify lại bằng Browser pane: `/` và `/runs` chạy mock bình thường trở lại, `/documents` vẫn gọi đúng backend thật (0 bản ghi vì DB đã dọn sạch).
+
 **Giả định/quyết định cần Toàn xác nhận:** (1) auth tạm thời qua mock cho tới khi có JWT thật; (2) `q` (tìm kiếm) chưa lọc được ở backend, chỉ bị bỏ qua im lặng — cần làm full-text search sau nếu Owner cần gấp.
 
 **Chưa làm (ngoài phạm vi, để sau):** `PATCH /documents/{id}/extraction` (nút "Xác nhận và lưu" trên UI hiện sẽ lỗi 404 nếu bấm — CHƯA test kỹ luồng này, cần Owner biết trước khi demo).
