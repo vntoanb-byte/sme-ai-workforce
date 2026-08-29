@@ -21,7 +21,7 @@
 import * as React from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Check, Minus, Paperclip, Plus, RotateCw, Stamp, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Check, Minus, Paperclip, Plus, RotateCw, Stamp, X } from 'lucide-react'
 import { getDocument, listDocuments, patchExtraction } from '@/api/documents'
 import type { InvoiceData, QCResult } from '@/api/types'
 import { formatDuration } from '@/lib/format'
@@ -83,6 +83,11 @@ export function DocumentReviewPage() {
 
   const doc = q.data
   const failed = doc?.qc.filter((r) => !r.passed) ?? []
+  // NOTE (phát hiện thật, TASK-007): khi trích xuất thất bại (status=processing/
+  // failed/rejected), backend thật trả data={} (rỗng) — InvoiceForm/InvoicePreview
+  // giả định data luôn đủ trường (line_items, totals...) nên crash trắng trang nếu
+  // render với object rỗng. Mock trước đây luôn có sẵn dữ liệu đầy đủ nên chưa lộ.
+  const hasExtraction = !!draft && Object.keys(draft).length > 0
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -127,12 +132,22 @@ export function DocumentReviewPage() {
 
       {failed.length > 0 ? (
         <CorrectionSlip items={failed} className="mb-3.5" />
-      ) : doc ? (
+      ) : doc && hasExtraction ? (
         <ApprovalStamp className="mb-3.5" />
       ) : null}
 
       {q.isLoading || !doc || !draft ? (
         <Skeleton className="h-[520px] w-full rounded-xl" />
+      ) : !hasExtraction ? (
+        <Card className="flex h-[520px] flex-col items-center justify-center gap-3 text-center">
+          <AlertTriangle className="h-8 w-8 text-[#B33520]" aria-hidden />
+          <p className="text-[15px] font-semibold text-ink">Trích xuất thất bại — không có dữ liệu để đối chiếu</p>
+          <p className="max-w-md text-[13px] text-ink-mute">
+            Hệ thống chưa đọc được nội dung chứng từ này (mô hình AI lỗi hoặc tệp không hợp lệ). Kiểm tra kết nối
+            mô hình rồi thử nạp lại chứng từ.
+          </p>
+          <Button onClick={() => nav(backTo)}>Quay lại danh sách</Button>
+        </Card>
       ) : (
         <SplitView
           storageKey="doc-review"
