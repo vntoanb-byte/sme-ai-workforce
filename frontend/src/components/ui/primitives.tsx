@@ -86,7 +86,7 @@ export function Select({ className, children, ...rest }: React.SelectHTMLAttribu
 
 export function Label({ className, children, ...rest }: React.LabelHTMLAttributes<HTMLLabelElement>) {
   return (
-    <label className={cn('block text-[11px] font-semibold uppercase tracking-wide text-ink-mute mb-1', className)} {...rest}>
+    <label className={cn('mb-1 block font-mono text-[10.5px] font-semibold uppercase tracking-wide text-ink-mute', className)} {...rest}>
       {children}
     </label>
   )
@@ -108,7 +108,14 @@ export function Badge({ tone = 'neutral', dot, children, className }: {
   tone?: Tone; dot?: boolean; children: React.ReactNode; className?: string
 }) {
   return (
-    <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold', TONE[tone], className)}>
+    <span
+      className={cn(
+        // Chữ nhãn dạng mono-uppercase — cùng "giọng" đèn báo/nhãn thiết bị
+        // với Label và các tiêu đề khối, thay vì chữ thường bo tròn chung chung.
+        'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide',
+        TONE[tone], className,
+      )}
+    >
       {dot && <span className="h-1.5 w-1.5 rounded-full bg-current" />}
       {children}
     </span>

@@ -2,6 +2,7 @@
 import * as React from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Button, Callout, Input, Label } from '@/components/ui/primitives'
+import { BrandMark } from '@/components/shared/BrandMark'
 import { useAuth } from '@/hooks/useAuth'
 import { ApiError, USE_MOCK } from '@/api/client'
 
@@ -33,19 +34,22 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#F4F6FA] px-4">
+    <div className="flex min-h-screen items-center justify-center px-4">
       <div className="w-full max-w-[380px]">
-        <div className="mb-6 flex flex-col items-center gap-2.5">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#4F7CFF] to-[#8B5CF6] text-[15px] font-bold text-white">
-            AI
+        <div className="mb-6 flex flex-col items-center gap-3">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-nav shadow-sm">
+            <BrandMark size={38} />
           </div>
           <div className="text-center">
-            <h1 className="text-[18px] font-bold text-ink">SME AI Workforce</h1>
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.22em] text-ink-faint">
+              Buồng lái vận hành
+            </p>
+            <h1 className="mt-1 text-[19px] font-bold text-ink">SME AI Workforce</h1>
             <p className="mt-0.5 text-[12.5px] text-ink-mute">Công ty TNHH TM An Phát</p>
           </div>
         </div>
 
-        <form onSubmit={submit} className="rounded-xl border border-line bg-white p-5">
+        <form onSubmit={submit} className="rounded-xl border border-line bg-white p-5 shadow-sm">
           <div className="mb-3.5">
             <Label htmlFor="u">Tên đăng nhập</Label>
             <Input id="u" value={username} onChange={(e) => setUsername(e.target.value)} autoFocus autoComplete="username" />

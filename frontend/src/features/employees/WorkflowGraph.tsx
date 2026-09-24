@@ -69,6 +69,7 @@ export function WorkflowGraph({ workflow, selected, onSelect }: {
                   onClick={() => onSelect?.(s.step_key)}
                   className={cn(
                     'rounded-lg border-[1.5px] px-3.5 py-2.5 text-left transition-shadow',
+                    'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/45',
                     steps.length > 1 ? 'w-[210px]' : 'w-[340px]',
                     t.box,
                     isSel ? 'ring-2 ring-brand/45' : 'hover:shadow-md',

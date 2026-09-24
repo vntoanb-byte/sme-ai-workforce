@@ -35,3 +35,9 @@ deploy/bundle/
 .DS_Store
 .idea/
 .vscode/settings.json
+
+# Bo du lieu nghien cuu tai ve (VLM-Extract_Bill, 982 anh, 81 MB) - khong thuoc ma nguon
+ddataa set/
+
+# File build cua TypeScript (truoc day bi track nham)
+frontend/tsconfig.tsbuildinfo

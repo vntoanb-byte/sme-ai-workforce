@@ -14,7 +14,7 @@ export function PageHeader({ title, subtitle, back, actions }: {
       {back && (
         <button
           onClick={() => nav(back)}
-          className="rounded-md border border-[#CBD5E4] bg-white p-1.5 text-ink-soft hover:bg-[#F7F9FC]"
+          className="rounded-md border border-[#CBD5E4] bg-white p-1.5 text-ink-soft hover:bg-[#F7F9FC] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
           aria-label="Quay lại"
         >
           <ArrowLeft className="h-4 w-4" />

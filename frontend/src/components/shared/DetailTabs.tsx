@@ -36,6 +36,7 @@ export function DetailTabs({ tabs, defaultTab }: { tabs: TabDef[]; defaultTab?: 
             onClick={() => select(t.key)}
             className={cn(
               'relative -mb-px flex items-center gap-2 border-b-2 px-3.5 py-2 text-[13px] font-semibold transition-colors',
+              'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:ring-offset-1',
               t.key === current.key
                 ? 'border-brand text-brand-dark'
                 : 'border-transparent text-ink-mute hover:text-ink',

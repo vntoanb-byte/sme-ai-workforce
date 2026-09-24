@@ -95,7 +95,7 @@ export function DocumentReviewPage() {
         <button
           onClick={() => nav(backTo)}
           aria-label="Quay lại"
-          className="mt-0.5 rounded-md border border-[#CBD5E4] bg-white p-1.5 text-ink-soft hover:bg-[#F7F9FC]"
+          className="mt-0.5 rounded-md border border-[#CBD5E4] bg-white p-1.5 text-ink-soft hover:bg-[#F7F9FC] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
         >
           <ArrowLeft className="h-4 w-4" />
         </button>
@@ -271,7 +271,7 @@ function IconBtn({ children, onClick, label }: { children: React.ReactNode; onCl
       onClick={onClick}
       aria-label={label}
       title={label}
-      className="rounded border border-[#CBD5E4] bg-white p-1 text-ink-soft hover:bg-[#F7F9FC]"
+      className="rounded border border-[#CBD5E4] bg-white p-1 text-ink-soft hover:bg-[#F7F9FC] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
     >
       {children}
     </button>

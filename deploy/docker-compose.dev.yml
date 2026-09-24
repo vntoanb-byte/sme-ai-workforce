@@ -1,5 +1,6 @@
 # Môi trường phát triển: KHÔNG chạy vLLM (máy phát triển chỉ có 6GB VRAM).
 # Mô hình được gọi qua dịch vụ trung gian, cấu hình trong backend/.env
+# (hiện là LM Studio trên máy host, cổng 1234).
 name: sme-ai-workforce-dev
 
 services:
@@ -8,8 +9,14 @@ services:
       context: ..
       dockerfile: backend/Dockerfile
     env_file: ../backend/.env
+    environment:
+      # Trong container, 127.0.0.1 là chính container — phải đi qua host.
+      LLM_BASE_URL: http://host.docker.internal:1234/v1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ../backend:/app
       - ../data:/data
-    ports: ["8080:8080"]
+    # 8123 = cổng frontend/vite.config.ts đang proxy /api tới
+    ports: ["8123:8080"]
     command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload

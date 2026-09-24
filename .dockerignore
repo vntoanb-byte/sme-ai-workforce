@@ -1,0 +1,16 @@
+# Không đưa vào build context (context = gốc repo)
+.git
+.gitnexus
+.claude
+**/.venv
+**/node_modules
+**/dist
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+backend/data
+data
+eval
+docs
+*.md

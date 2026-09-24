@@ -5,7 +5,7 @@
 import * as React from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
-  Bot, ChevronDown, FileText, Flag, LayoutGrid, ListOrdered, LogOut, Settings, Table2, Upload,
+  Bot, ChevronDown, FileText, Flag, LayoutGrid, ListOrdered, LogOut, Menu, Settings, Table2, Upload, X,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { cn } from '@/lib/cn'
@@ -13,6 +13,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { getMetrics } from '@/api/admin'
 import { STALE } from '@/lib/query'
 import { Badge } from '@/components/ui/primitives'
+import { BrandMark } from '@/components/shared/BrandMark'
 import { USE_MOCK } from '@/api/client'
 
 interface NavItem {
@@ -43,11 +44,18 @@ const NAV: { section?: string; items: NavItem[] }[] = [
 ]
 
 export function AppShell() {
+  const loc = useLocation()
+  const [navOpen, setNavOpen] = React.useState(false)
+
+  // Đóng ngăn điều hướng mobile mỗi khi chuyển trang, để không che màn hình mới.
+  React.useEffect(() => setNavOpen(false), [loc.pathname])
+
   return (
-    <div className="flex h-screen overflow-hidden bg-[#F4F6FA]">
+    <div className="flex h-screen overflow-hidden">
       <Sidebar />
+      <MobileNav open={navOpen} onClose={() => setNavOpen(false)} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar />
+        <Topbar onMenuClick={() => setNavOpen(true)} />
         <main className="thin-scroll flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-5 lg:px-6">
           <Outlet />
         </main>
@@ -56,7 +64,8 @@ export function AppShell() {
   )
 }
 
-function Sidebar() {
+/** Nội dung điều hướng dùng chung — cột cố định trên desktop (Sidebar), ngăn kéo trên mobile (MobileNav). */
+function SidebarContent() {
   const { hasRole } = useAuth()
   const loc = useLocation()
   const { data: metrics } = useQuery({ queryKey: ['metrics'], queryFn: getMetrics, staleTime: STALE.runs })
@@ -71,11 +80,9 @@ function Sidebar() {
   }
 
   return (
-    <aside className="hidden w-[230px] shrink-0 flex-col bg-nav py-4 text-nav-text md:flex">
+    <>
       <div className="mb-3.5 flex items-center gap-2.5 border-b border-nav-line px-4 pb-4">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[#4F7CFF] to-[#8B5CF6] text-[13px] font-bold text-white">
-          AI
-        </div>
+        <BrandMark size={30} />
         <div className="min-w-0">
           <p className="truncate text-[13.5px] font-bold text-white">SME AI Workforce</p>
           <p className="truncate text-[10px] text-[#7D8FAC]">Công ty TNHH TM An Phát</p>
@@ -102,6 +109,7 @@ function Sidebar() {
                     to={item.to}
                     className={cn(
                       'mb-0.5 flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13.5px] transition-colors',
+                      'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50',
                       isActive(item) ? 'bg-nav-hover font-semibold text-white' : 'hover:bg-white/5',
                     )}
                   >
@@ -126,11 +134,58 @@ function Sidebar() {
           Đặt <span className="font-mono">VITE_USE_MOCK=false</span> để gọi backend thật.
         </div>
       )}
+    </>
+  )
+}
+
+function Sidebar() {
+  return (
+    <aside className="hidden w-[230px] shrink-0 flex-col bg-nav py-4 text-nav-text md:flex">
+      <SidebarContent />
     </aside>
   )
 }
 
-function Topbar() {
+/**
+ * Ngăn điều hướng cho màn hình hẹp (<768px) — trước đây Sidebar ẩn hoàn toàn ở
+ * kích thước này và KHÔNG có gì thay thế, nghĩa là không cách nào chuyển trang.
+ * Dùng lại đúng bảng màu `nav` (than chì) của Sidebar desktop, không phải hộp
+ * thoại trắng chung chung, để giữ đúng "buồng lái" khi mở trên điện thoại.
+ */
+function MobileNav({ open, onClose }: { open: boolean; onClose: () => void }) {
+  React.useEffect(() => {
+    if (!open) return
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', h)
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { window.removeEventListener('keydown', h); document.body.style.overflow = prev }
+  }, [open, onClose])
+
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-50 flex md:hidden">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} aria-hidden />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Điều hướng"
+        className="relative flex h-full w-[240px] flex-col bg-nav py-4 text-nav-text shadow-2xl"
+      >
+        <button
+          onClick={onClose}
+          aria-label="Đóng menu"
+          className="absolute right-2 top-2 rounded p-1.5 text-nav-text hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
+        >
+          <X className="h-4 w-4" />
+        </button>
+        <SidebarContent />
+      </div>
+    </div>
+  )
+}
+
+function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
   const { user, logout } = useAuth()
   const [open, setOpen] = React.useState(false)
   const { data: metrics } = useQuery({ queryKey: ['metrics'], queryFn: getMetrics, staleTime: STALE.runs })
@@ -140,7 +195,14 @@ function Topbar() {
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line bg-white px-5 lg:px-6">
-      <span className="text-[12.5px] text-ink-mute md:hidden">SME AI Workforce</span>
+      <button
+        onClick={onMenuClick}
+        aria-label="Mở menu điều hướng"
+        className="-ml-1.5 rounded-md p-1.5 text-ink-soft hover:bg-black/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 md:hidden"
+      >
+        <Menu className="h-5 w-5" />
+      </button>
+      <span className="text-[12.5px] font-semibold text-ink md:hidden">SME AI Workforce</span>
       <div className="ml-auto flex items-center gap-3">
         {metrics && (
           <Badge tone={metrics.llm_status === 'ok' ? 'ok' : 'error'} dot className="hidden sm:inline-flex">
@@ -151,7 +213,7 @@ function Topbar() {
           <button
             onClick={() => setOpen((v) => !v)}
             onBlur={() => setTimeout(() => setOpen(false), 150)}
-            className="flex items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-black/5"
+            className="flex items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-black/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
           >
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#D9E2F1] text-[11px] font-bold text-[#3B4E70]">
               {initials || '?'}
