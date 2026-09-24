@@ -19,8 +19,12 @@ def test_login_returns_tokens_user_and_httponly_cookies(anon_client: TestClient,
     assert resp.status_code == 200
     body = resp.json()
     assert body["user"] == {
-        "id": users["ketoan"].id, "username": "ketoan", "full_name": "Nguyễn Thị Hoa",
-        "email": "hoa@example.vn", "roles": ["USER"], "is_active": True,
+        "id": users["ketoan"].id,
+        "username": "ketoan",
+        "full_name": "Nguyễn Thị Hoa",
+        "email": "hoa@example.vn",
+        "roles": ["USER"],
+        "is_active": True,
     }
     assert body["access_token"] and body["refresh_token"]
     cookies = resp.headers.get_list("set-cookie")
@@ -52,9 +56,7 @@ def test_refresh_via_cookie_rotates_and_revokes_old(anon_client: TestClient, use
     assert resp.status_code == 200
     assert resp.json()["user"]["username"] == "ketoan"
     # token cũ đã bị thu hồi khi xoay vòng
-    reuse = anon_client.post(
-        "/api/v1/auth/refresh", json={"refresh_token": first["refresh_token"]}
-    )
+    reuse = anon_client.post("/api/v1/auth/refresh", json={"refresh_token": first["refresh_token"]})
     assert reuse.status_code == 401
     assert reuse.json()["error"]["code"] == "TOKEN_REVOKED"
 

@@ -121,7 +121,9 @@ def test_list_new_files_rejects_outside_folder(db: Session, storage: LocalFileSt
 # ─── vision + qc ───
 
 
-def test_extract_invoice_then_validate(db: Session, storage: LocalFileStorage, scan_dir: Path) -> None:
+def test_extract_invoice_then_validate(
+    db: Session, storage: LocalFileStorage, scan_dir: Path
+) -> None:
     for i in range(3):
         (scan_dir / f"hd{i}.png").write_bytes(png_bytes(i))
     files = [{"filename": f"hd{i}.png", "path": str(scan_dir / f"hd{i}.png")} for i in range(3)]
@@ -158,7 +160,9 @@ def test_escalate_marks_needs_review_and_audits(db: Session, storage: LocalFileS
     doc = Document(filename="a.png", source_kind="image", status="processing", artifact=artifact)
     db.add(doc)
     db.flush()
-    out = get_tool("qc.escalate").run(_ctx(db, storage), {"assign_to": "quanly"}, {"document_ids": [doc.id]})
+    out = get_tool("qc.escalate").run(
+        _ctx(db, storage), {"assign_to": "quanly"}, {"document_ids": [doc.id]}
+    )
     assert doc.status == "needs_review"
     assert out.outputs["review_document_ids"] == [doc.id]
     assert db.scalar(select(AuditLog).where(AuditLog.action == "document.escalate")) is not None
@@ -172,7 +176,8 @@ def test_classify_document(db: Session, storage: LocalFileStorage, scan_dir: Pat
         {"filename": "b.txt", "path": str(scan_dir / "b.txt")},
     ]
     out = get_tool("vision.classify_document").run(
-        _ctx(db, storage, SmartLLM(label="hop_dong")), {"labels": "hoa_don, hop_dong"},
+        _ctx(db, storage, SmartLLM(label="hop_dong")),
+        {"labels": "hoa_don, hop_dong"},
         {"files": files},
     )
     assert out.outputs["classifications"] == [
@@ -186,19 +191,24 @@ def test_classify_document(db: Session, storage: LocalFileStorage, scan_dir: Pat
 # ─── xlsx ───
 
 
-def test_append_rows_never_overwrites_target(db: Session, storage: LocalFileStorage, scan_dir: Path) -> None:
+def test_append_rows_never_overwrites_target(
+    db: Session, storage: LocalFileStorage, scan_dir: Path
+) -> None:
     target = scan_dir / "SoHoaDon.xlsx"
     original = _xlsx([["Số hoá đơn", "Ghi chú"], ["0000001", "có sẵn"]])
     target.write_bytes(original)
 
     (scan_dir / "hd.png").write_bytes(png_bytes(5))
     ctx = _ctx(db, storage, SmartLLM(invoices=[invoice_payload("0000777")]))
-    ids = get_tool("vision.extract_invoice").run(
-        ctx, {}, {"files": [{"filename": "hd.png", "path": str(scan_dir / "hd.png")}]}
-    ).outputs["document_ids"]
+    ids = (
+        get_tool("vision.extract_invoice")
+        .run(ctx, {}, {"files": [{"filename": "hd.png", "path": str(scan_dir / "hd.png")}]})
+        .outputs["document_ids"]
+    )
 
-    out = get_tool("xlsx.append_rows").run(ctx, {"file": "SoHoaDon.xlsx", "sheet": "Sheet"},
-                                           {"document_ids": ids})
+    out = get_tool("xlsx.append_rows").run(
+        ctx, {"file": "SoHoaDon.xlsx", "sheet": "Sheet"}, {"document_ids": ids}
+    )
     assert target.read_bytes() == original  # tệp gốc KHÔNG bị đụng tới
     assert out.outputs["workbook"]["filename"].startswith("SoHoaDon_")
     rows = _read_artifact(db, storage, out.outputs["artifact_ids"][0])
@@ -213,15 +223,24 @@ def test_append_rows_never_overwrites_target(db: Session, storage: LocalFileStor
     assert rows[0][0] == "Số hoá đơn" and rows[1][0] == "0000777" and len(rows) == 2
 
 
-def test_merge_normalize_dedupe_chain(db: Session, storage: LocalFileStorage, scan_dir: Path) -> None:
-    (scan_dir / "a.xlsx").write_bytes(_xlsx([["Mã", "Tên", "Tiền"], ["K1", "  An   Phát ", "1.200.000"]]))
+def test_merge_normalize_dedupe_chain(
+    db: Session, storage: LocalFileStorage, scan_dir: Path
+) -> None:
+    (scan_dir / "a.xlsx").write_bytes(
+        _xlsx([["Mã", "Tên", "Tiền"], ["K1", "  An   Phát ", "1.200.000"]])
+    )
     (scan_dir / "b.xlsx").write_bytes(
         _xlsx([["Mã", "Ngày", "Tiền"], ["K1", "05/08/2026", "1.200.000"], ["K2", None, "500"]])
     )
     files = [{"filename": n, "path": str(scan_dir / n)} for n in ("a.xlsx", "b.xlsx")]
     ctx = _ctx(db, storage)
     merged = get_tool("xlsx.merge_files").run(ctx, {}, {"files": files}).outputs
-    assert _read_artifact(db, storage, merged["workbook"]["artifact_id"])[0] == ["Mã", "Tên", "Tiền", "Ngày"]
+    assert _read_artifact(db, storage, merged["workbook"]["artifact_id"])[0] == [
+        "Mã",
+        "Tên",
+        "Tiền",
+        "Ngày",
+    ]
 
     normalized = get_tool("xlsx.normalize").run(ctx, {}, merged).outputs
     rows = _read_artifact(db, storage, normalized["workbook"]["artifact_id"])
@@ -296,7 +315,10 @@ def test_doc_tools(db: Session, storage: LocalFileStorage, scan_dir: Path) -> No
         pdf, save_all=True, append_images=[Image.new("RGB", (200, 300), "gray")]
     )
     ctx = _ctx(db, storage)
-    files = [{"filename": "to.png", "path": str(img)}, {"filename": "hai_trang.pdf", "path": str(pdf)}]
+    files = [
+        {"filename": "to.png", "path": str(img)},
+        {"filename": "hai_trang.pdf", "path": str(pdf)},
+    ]
     rendered = get_tool("doc.render_pdf").run(ctx, {}, {"files": files})
     names = [f["filename"] for f in rendered.outputs["files"]]
     assert names == ["to.png", "hai_trang_p1.png", "hai_trang_p2.png"]

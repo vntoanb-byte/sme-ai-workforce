@@ -37,7 +37,9 @@ def smart(client: TestClient) -> SmartLLM:
 
 def _create(client: TestClient, smart: SmartLLM, scan_dir: Path) -> dict[str, Any]:
     smart.spec = _spec(scan_dir)
-    resp = client.post("/api/v1/employees", json={"name": "Kế toán hoá đơn", "job_description": DESC})
+    resp = client.post(
+        "/api/v1/employees", json={"name": "Kế toán hoá đơn", "job_description": DESC}
+    )
     assert resp.status_code == 200, resp.text
     return resp.json()
 
@@ -51,8 +53,11 @@ def test_create_employee_compiles_workflow(
     assert wf["template_code"] == "TPL_INVOICE_TO_EXCEL"
     assert wf["status"] == "pending" and wf["version"] == 1
     assert wf["trigger"] == {
-        "type": "cron", "label": "Mỗi ngày lúc 08:00", "cron_expr": "0 8 * * *",
-        "watch_path": None, "timezone": "Asia/Ho_Chi_Minh",
+        "type": "cron",
+        "label": "Mỗi ngày lúc 08:00",
+        "cron_expr": "0 8 * * *",
+        "watch_path": None,
+        "timezone": "Asia/Ho_Chi_Minh",
     }
     steps = {s["step_key"]: s for s in wf["steps"]}
     assert steps["write_excel"]["branch"] == "pass" and steps["to_review"]["branch"] == "fail"
@@ -91,9 +96,7 @@ def test_invalid_spec_reports_validator_errors(
     spec = _spec(scan_dir)
     spec["steps"][3]["tool_code"] = "email.send"  # mô hình bịa công cụ
     smart.spec = spec
-    body = client.post(
-        "/api/v1/employees", json={"name": "x", "job_description": DESC}
-    ).json()
+    body = client.post("/api/v1/employees", json={"name": "x", "job_description": DESC}).json()
     assert body["ok"] is False
     assert any(e["rule"] == "V-1" and e["step_key"] == "write_excel" for e in body["errors"])
     assert smart.calls.count("spec") == 3  # thử lại đủ 3 lần kèm lỗi

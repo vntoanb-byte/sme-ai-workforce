@@ -14,8 +14,9 @@ from tests.conftest import SmartLLM, invoice_payload, png_bytes
 
 
 def _run_worker(queue, session_factory, storage, llm) -> None:  # noqa: ANN001
-    assert Worker(queue, session_factory, storage, llm, worker_id="w", poll_interval=0,
-                  retry_delay=0).process_one()
+    assert Worker(
+        queue, session_factory, storage, llm, worker_id="w", poll_interval=0, retry_delay=0
+    ).process_one()
 
 
 def test_trigger_list_detail_and_logs(
@@ -34,8 +35,7 @@ def test_trigger_list_detail_and_logs(
     row = client.get(f"/api/v1/runs/{run_id}").json()
     assert row["status"] == "PENDING" and row["trigger_type"] == "manual"
 
-    _run_worker(queue, session_factory, storage,
-                SmartLLM(invoices=[invoice_payload("0000501")]))
+    _run_worker(queue, session_factory, storage, SmartLLM(invoices=[invoice_payload("0000501")]))
 
     listing = client.get("/api/v1/runs", params={"status": "SUCCEEDED"}).json()
     assert listing["total"] == 1
@@ -47,7 +47,11 @@ def test_trigger_list_detail_and_logs(
 
     detail = client.get(f"/api/v1/runs/{run_id}").json()
     assert [s["status"] for s in detail["steps"]] == [
-        "SUCCEEDED", "SUCCEEDED", "SUCCEEDED", "SUCCEEDED", "SKIPPED"
+        "SUCCEEDED",
+        "SUCCEEDED",
+        "SUCCEEDED",
+        "SUCCEEDED",
+        "SKIPPED",
     ]
     assert detail["stats"] == {"read": 1, "passed": 1, "needs_review": 0, "total_amount": 110000.0}
     output = detail["outputs"][0]
@@ -80,9 +84,7 @@ def test_trigger_list_detail_and_logs(
     assert resumed.count("event: log") == 1
 
 
-def test_cancel_and_permissions(
-    client: TestClient, user_client: TestClient, make_employee
-) -> None:
+def test_cancel_and_permissions(client: TestClient, user_client: TestClient, make_employee) -> None:
     employee = make_employee()
     assert user_client.post("/api/v1/runs", json={"employee_id": employee.id}).status_code == 403
     run_id = client.post("/api/v1/runs", json={"employee_id": employee.id}).json()["id"]

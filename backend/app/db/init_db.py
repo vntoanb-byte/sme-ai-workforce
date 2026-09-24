@@ -20,13 +20,13 @@ import time
 from pathlib import Path
 
 import structlog
-from sqlalchemy import Engine, create_engine, inspect, select
-from sqlalchemy.orm import Session
-
 from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
+from sqlalchemy import Engine, create_engine, inspect, select
+from sqlalchemy.orm import Session
+
 from app.core.config import settings
 from app.db.base import Base
 from app.models.user import Role, User

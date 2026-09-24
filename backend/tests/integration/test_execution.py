@@ -47,10 +47,22 @@ def put_files(scan_dir: Path):  # noqa: ANN201
     return _put
 
 
-def _worker(queue: SQLiteJobQueue, session_factory: sessionmaker[Session],
-            storage: LocalFileStorage, llm: Any) -> Worker:
-    return Worker(queue, session_factory, storage, llm, worker_id="w-test",
-                  lease_seconds=60, poll_interval=0, retry_delay=0)
+def _worker(
+    queue: SQLiteJobQueue,
+    session_factory: sessionmaker[Session],
+    storage: LocalFileStorage,
+    llm: Any,
+) -> Worker:
+    return Worker(
+        queue,
+        session_factory,
+        storage,
+        llm,
+        worker_id="w-test",
+        lease_seconds=60,
+        poll_interval=0,
+        retry_delay=0,
+    )
 
 
 def _start(db: Session, queue: SQLiteJobQueue, employee: Any) -> int:
@@ -65,8 +77,10 @@ def _state(session_factory: sessionmaker[Session], run_id: int) -> dict[str, Any
         assert run is not None
         detail = run_service.run_detail(s, run)
         job = s.scalar(
-            select(JobQueueEntry).where(JobQueueEntry.run_id == run_id)
-            .order_by(JobQueueEntry.id.desc()).limit(1)
+            select(JobQueueEntry)
+            .where(JobQueueEntry.run_id == run_id)
+            .order_by(JobQueueEntry.id.desc())
+            .limit(1)
         )
         transitions = [
             (log.from_status, log.to_status)
@@ -96,14 +110,19 @@ def test_happy_path_succeeds(db, queue, session_factory, storage, make_employee,
     assert st["status"] == "succeeded"
     assert st["job"] == "succeeded"
     assert st["steps"] == {
-        "scan_folder": "SUCCEEDED", "read_invoice": "SUCCEEDED", "check_data": "SUCCEEDED",
-        "write_excel": "SUCCEEDED", "to_review": "SKIPPED",
+        "scan_folder": "SUCCEEDED",
+        "read_invoice": "SUCCEEDED",
+        "check_data": "SUCCEEDED",
+        "write_excel": "SUCCEEDED",
+        "to_review": "SKIPPED",
     }
     assert st["stats"]["read"] == 3 and st["stats"]["passed"] == 3
     assert st["stats"]["needs_review"] == 0
     assert len(st["outputs"]) == 1 and st["outputs"][0]["filename"].endswith(".xlsx")
     assert st["transitions"] == [
-        ("pending", "claimed"), ("claimed", "running"), ("running", "succeeded")
+        ("pending", "claimed"),
+        ("claimed", "running"),
+        ("running", "succeeded"),
     ]
     assert llm.calls.count("invoice") == 3
     # Không còn việc gì trong hàng đợi.
@@ -115,20 +134,27 @@ def test_qc_failure_needs_review_then_resume_after_approval(
 ):
     employee = make_employee()
     put_files(3)
-    llm = SmartLLM(invoices=[
-        invoice_payload("0000001"), invoice_payload("0000002", bad_total=True),
-        invoice_payload("0000003"),
-    ])
+    llm = SmartLLM(
+        invoices=[
+            invoice_payload("0000001"),
+            invoice_payload("0000002", bad_total=True),
+            invoice_payload("0000003"),
+        ]
+    )
     run_id = _start(db, queue, employee)
     worker = _worker(queue, session_factory, storage, llm)
     worker.process_one()
 
     st = _state(session_factory, run_id)
     assert st["status"] == "needs_review"
-    assert st["steps"]["write_excel"] == "SUCCEEDED"   # chứng từ tốt không phải chờ
+    assert st["steps"]["write_excel"] == "SUCCEEDED"  # chứng từ tốt không phải chờ
     assert st["steps"]["to_review"] == "SUCCEEDED"
-    assert st["stats"] == {"read": 3, "passed": 2, "needs_review": 1,
-                           "total_amount": st["stats"]["total_amount"]}
+    assert st["stats"] == {
+        "read": 3,
+        "passed": 2,
+        "needs_review": 1,
+        "total_amount": st["stats"]["total_amount"],
+    }
     assert len(st["outputs"]) == 1
 
     bad = db.scalar(select(Document).where(Document.status == "needs_review"))
@@ -140,7 +166,7 @@ def test_qc_failure_needs_review_then_resume_after_approval(
     worker.process_one()
     st = _state(session_factory, run_id)
     assert st["status"] == "succeeded"
-    assert len(st["outputs"]) == 2          # thêm đúng 1 tệp Excel cho chứng từ vừa duyệt
+    assert len(st["outputs"]) == 2  # thêm đúng 1 tệp Excel cho chứng từ vừa duyệt
     assert llm.calls.count("invoice") == 3  # không đọc lại hoá đơn khi chạy tiếp
     assert ("needs_review", "retrying") in st["transitions"]
 
@@ -151,8 +177,12 @@ def test_reject_all_reviewed_documents_finishes_run(
     employee = make_employee()
     put_files(1)
     run_id = _start(db, queue, employee)
-    _worker(queue, session_factory, storage,
-            SmartLLM(invoices=[invoice_payload("0000009", bad_total=True)])).process_one()
+    _worker(
+        queue,
+        session_factory,
+        storage,
+        SmartLLM(invoices=[invoice_payload("0000009", bad_total=True)]),
+    ).process_one()
     assert _state(session_factory, run_id)["status"] == "needs_review"
 
     bad = db.scalar(select(Document).where(Document.status == "needs_review"))
@@ -176,9 +206,9 @@ def test_transient_error_retries_then_fails(
     worker.process_one()
     st = _state(session_factory, run_id)
     assert st["status"] == "retrying"
-    assert st["job"] == "pending"                    # trả về hàng đợi, có backoff
-    assert llm.calls.count("invoice") == 3           # 1 lần + retry_max=2 của bước
-    assert worker.process_one() is False             # còn trong thời gian backoff
+    assert st["job"] == "pending"  # trả về hàng đợi, có backoff
+    assert llm.calls.count("invoice") == 3  # 1 lần + retry_max=2 của bước
+    assert worker.process_one() is False  # còn trong thời gian backoff
 
     db.execute(text("UPDATE job_queue SET available_at='2000-01-01T00:00:00.000000Z'"))
     db.commit()
@@ -196,8 +226,9 @@ def test_permanent_error_fails_run_without_retry(
     employee = make_employee(config={"write_excel": {"file": "/etc/SoHoaDon.xlsx"}})
     put_files(1)
     run_id = _start(db, queue, employee)
-    _worker(queue, session_factory, storage,
-            SmartLLM(invoices=[invoice_payload("0000010")])).process_one()
+    _worker(
+        queue, session_factory, storage, SmartLLM(invoices=[invoice_payload("0000010")])
+    ).process_one()
     st = _state(session_factory, run_id)
     assert st["status"] == "failed"
     assert st["steps"]["write_excel"] == "FAILED"
@@ -213,7 +244,10 @@ def test_no_new_files_skips_downstream(db, queue, session_factory, storage, make
     assert st["status"] == "succeeded"
     assert st["steps"]["scan_folder"] == "SUCCEEDED"
     assert {k for k, v in st["steps"].items() if v == "SKIPPED"} == {
-        "read_invoice", "check_data", "write_excel", "to_review"
+        "read_invoice",
+        "check_data",
+        "write_excel",
+        "to_review",
     }
 
 
@@ -240,8 +274,9 @@ def test_cancel_before_and_during_run(
                 s.commit()
             return super().complete(messages, **kw)
 
-    _worker(queue, session_factory, storage,
-            CancellingLLM(invoices=[invoice_payload("0000011")])).process_one()
+    _worker(
+        queue, session_factory, storage, CancellingLLM(invoices=[invoice_payload("0000011")])
+    ).process_one()
     st = _state(session_factory, run_id)
     assert st["status"] == "cancelled"
     assert st["steps"]["read_invoice"] == "SUCCEEDED"
@@ -282,6 +317,7 @@ def test_reaper_recovers_job_of_dead_worker(
     st = _state(session_factory, run_id)
     assert st["status"] == "retrying" and st["job"] == "pending"
 
-    _worker(queue, session_factory, storage,
-            SmartLLM(invoices=[invoice_payload("0000012")])).process_one()
+    _worker(
+        queue, session_factory, storage, SmartLLM(invoices=[invoice_payload("0000012")])
+    ).process_one()
     assert _state(session_factory, run_id)["status"] == "succeeded"

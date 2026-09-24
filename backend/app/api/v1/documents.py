@@ -223,9 +223,9 @@ def upload_document(
     file_bytes = _read_with_limit(file)
     filename = file.filename or "unknown"
     content_type = file.content_type
+    # extract_document tự ghi llm_calls — KHÔNG bọc thêm RecordingLLM (ghi đôi).
     document = document_service.ingest(
-        db, storage, document_service.RecordingLLM(llm, db), file_bytes, filename, content_type,
-        uploaded_by=user.id,
+        db, storage, llm, file_bytes, filename, content_type, uploaded_by=user.id
     )
     db.commit()
     # Sau commit vẫn cần đọc lại quan hệ (session dùng expire_on_commit=False,

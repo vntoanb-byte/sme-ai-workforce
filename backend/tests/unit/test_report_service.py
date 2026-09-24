@@ -28,9 +28,18 @@ def _doc(
     vat = sub * Decimal(rate) / 100
     db.add(
         Extraction(
-            document_id=doc.id, schema_version="invoice_v1", model_name="m", latency_ms=1,
-            invoice_no=str(n), issue_date=day, seller_name=seller, currency="VND",
-            subtotal=sub, vat_rate=Decimal(rate), vat_amount=vat, total=sub + vat,
+            document_id=doc.id,
+            schema_version="invoice_v1",
+            model_name="m",
+            latency_ms=1,
+            invoice_no=str(n),
+            issue_date=day,
+            seller_name=seller,
+            currency="VND",
+            subtotal=sub,
+            vat_rate=Decimal(rate),
+            vat_amount=vat,
+            total=sub + vat,
             extracted_data_json=json.dumps({}),
         )
     )
@@ -43,17 +52,33 @@ def seeded(db: Session) -> Session:
     _doc(db, 1, seller="Minh Long", day=date(2026, 8, 3), rate="10", subtotal="1000000")
     _doc(db, 2, seller="Minh Long", day=date(2026, 8, 20), rate="8", subtotal="500000")
     _doc(db, 3, seller="Đông Á", day=date(2026, 9, 1), rate="10", subtotal="200000")
-    _doc(db, 4, seller="Đông Á", day=date(2026, 8, 5), rate="10", subtotal="999999",
-         status="needs_review")  # chưa xác nhận → không tính
+    _doc(
+        db,
+        4,
+        seller="Đông Á",
+        day=date(2026, 8, 5),
+        rate="10",
+        subtotal="999999",
+        status="needs_review",
+    )  # chưa xác nhận → không tính
     _doc(db, 5, seller="Ngoài kỳ", day=date(2026, 6, 1), rate="10", subtotal="1")
     # Chứng từ 2 được sửa tay: chỉ extraction MỚI NHẤT được tính.
     doc2 = db.get(Document, 2)
     db.add(
         Extraction(
-            document_id=doc2.id, schema_version="invoice_v1", model_name="human", latency_ms=0,  # type: ignore[union-attr]
-            invoice_no="2", issue_date=date(2026, 8, 20), seller_name="Minh Long",
-            currency="VND", subtotal=Decimal("600000"), vat_rate=Decimal("8"),
-            vat_amount=Decimal("48000"), total=Decimal("648000"), extracted_data_json="{}",
+            document_id=doc2.id,
+            schema_version="invoice_v1",
+            model_name="human",
+            latency_ms=0,  # type: ignore[union-attr]
+            invoice_no="2",
+            issue_date=date(2026, 8, 20),
+            seller_name="Minh Long",
+            currency="VND",
+            subtotal=Decimal("600000"),
+            vat_rate=Decimal("8"),
+            vat_amount=Decimal("48000"),
+            total=Decimal("648000"),
+            extracted_data_json="{}",
         )
     )
     db.flush()
@@ -91,7 +116,10 @@ def test_resolve_period() -> None:
     assert report_service.resolve_period("today", today) == (today, today)
     assert report_service.resolve_period("this_week", today) == (date(2026, 9, 21), today)
     assert report_service.resolve_period("this_month", today) == (date(2026, 9, 1), today)
-    assert report_service.resolve_period("last_month", today) == (date(2026, 8, 1), date(2026, 8, 31))
+    assert report_service.resolve_period("last_month", today) == (
+        date(2026, 8, 1),
+        date(2026, 8, 31),
+    )
     with pytest.raises(ValidationFailed):
         report_service.resolve_period("nam_ngoai", today)
 

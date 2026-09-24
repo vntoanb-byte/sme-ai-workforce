@@ -103,7 +103,9 @@ def test_resolve_validation(client: TestClient, fake_llm: FakeLLM) -> None:
     assert bad_data.status_code == 422 and bad_data.json()["error"]["details"]
     wrong = client.post(f"/api/v1/reviews/{doc['id']}/resolve", json={"action": "xoa"})
     assert wrong.status_code == 422
-    assert client.post("/api/v1/reviews/9999/resolve", json={"action": "approve"}).status_code == 404
+    assert (
+        client.post("/api/v1/reviews/9999/resolve", json={"action": "approve"}).status_code == 404
+    )
 
 
 def test_patch_document_confirm_or_correct(
@@ -127,11 +129,26 @@ def test_document_search_and_auth(
     client: TestClient, anon_client: TestClient, fake_llm: FakeLLM
 ) -> None:
     _upload(client, fake_llm, invoice_payload("0000041"), 1)
-    doc = _upload(client, fake_llm, {**invoice_payload("0000042"),
-                                     "seller": {"name": "Công ty Minh Long",
-                                                "tax_code": "0101234565", "address": None}}, 2)
+    doc = _upload(
+        client,
+        fake_llm,
+        {
+            **invoice_payload("0000042"),
+            "seller": {"name": "Công ty Minh Long", "tax_code": "0101234565", "address": None},
+        },
+        2,
+    )
     found = client.get("/api/v1/documents", params={"q": "minh long"}).json()
     assert [d["id"] for d in found["items"]] == [doc["id"]]
     assert client.get("/api/v1/documents", params={"q": "0000041"}).json()["total"] == 1
     assert anon_client.get("/api/v1/documents").status_code == 401
     assert anon_client.get(f"/api/v1/documents/{doc['id']}/file").status_code == 401
+
+
+def test_each_model_call_logged_once(client: TestClient, fake_llm: FakeLLM, db: Session) -> None:
+    from sqlalchemy import func
+
+    from app.models.audit import LlmCall
+
+    _upload(client, fake_llm, invoice_payload("0000051"), 1)
+    assert db.scalar(select(func.count(LlmCall.id))) == len(fake_llm.calls) == 1
