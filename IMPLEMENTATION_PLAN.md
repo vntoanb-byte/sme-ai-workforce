@@ -4,6 +4,55 @@
 
 > **2026-08-28:** Owner đã gỡ VS Code/Cline khỏi máy. Từ đây Claude Code trực tiếp làm cả Architect **và** Implementer (không còn phối hợp qua khối "giao task cho Cline" nữa) — nhưng vẫn giữ nguyên kỷ luật tự review bằng bằng chứng thật (`scripts/verify`, Claim Gate) thay vì tự tuyên bố xong.
 
+## Task: TASK-008 — Hoàn thiện toàn bộ hệ thống (API, worker, công cụ, nối giao diện, triển khai)
+
+**Status:** DONE (2026-09-24) — Claude Code làm trực tiếp theo yêu cầu Owner "hoàn thành luôn, viết API, test đầy đủ, báo cáo". Chưa đo độ chính xác trên model thật (không có GPU trong môi trường làm việc) — xem "Còn lại".
+
+**Completed (theo thứ tự trong IMPLEMENTATION_PLAN cũ `compiler → queue → storage → models → services → api → tools → agents → workers → nối frontend`, phần còn thiếu):**
+- `core/`: errors (định dạng lỗi thống nhất + `is_transient`), logging (structlog JSON, trace_id), security (argon2, JWT access/refresh, Fernet). Config thêm `COOKIE_SECURE`, `STATIC_DIR`, `REPORT_FONT_PATH`, `FS_ALLOWED_ROOTS`.
+- Alembic: `env.py`, `script.py.mako` (bản cũ là stub), migration `0001` (21 bảng hiện có) + `0002` (`refresh_tokens`). API tự `upgrade head` khi khởi động; DB cũ tạo bằng `create_all` được `stamp` đúng phiên bản. Bỏ `create_all` tạm thời ở `main.py`.
+- `domain/templates/`: 5 mẫu + `registry.py` (+ `base.py`); 5 mã khớp đúng `TemplateCode` (có test khoá). `compiler.py` đưa danh mục mẫu + bộ khung mẫu + gợi ý môi trường vào prompt (`PROMPT_VERSION = v2`), chữ ký `compile()` giữ tương thích.
+- `tools/`: 14 công cụ + registry + `sync_tools_to_db` + chặn đường dẫn ngoài thư mục cho phép. `agents/crew.py`: 3 tác tử tuần tự Python thuần (ADR-004).
+- `services/`: auth, employee, workflow (mới), compiler, run (mới), execution, review, report, metrics (mới), settings (mới); document_service tách `extract_document` + ghi `llm_calls`.
+- `workers/`: worker (heartbeat, SIGTERM, không chết vì job lỗi), reaper (sửa trạng thái run của worker chết), scheduler (cron + file_watch, đọc lại bảng schedules mỗi phút). Adapter queue thêm `extend_lease`, `fail(retry=False)`, reap hết lượt → failed.
+- `api/v1/`: 38 điểm cuối / 9 router, xác thực + phân quyền mọi điểm cuối, SSE nhật ký, `PATCH /documents/{id}`, lọc `q`.
+- Frontend: nối toàn bộ màn hình với backend thật (xem CHECKLIST.md TASK-008).
+- Scripts: `seed_demo.py`, `gen_synthetic_invoices.py`, `eval_run.py`, `eval/score.py`. Deploy: worker trong compose, volume `/data`, phông PDF, nginx profile https.
+- Tài liệu: README (lưu đồ, workflow, công nghệ, lựa chọn model, báo cáo), ARCHITECTURE, SECURITY, DECISIONS (ADR-004..008).
+
+**Evidence (chạy thật, không suy đoán):**
+- `pytest` → `276 passed`, độ phủ 92% (`--cov=app`); `ruff check .` → All checks passed; `mypy app` → no issues (92 tệp).
+- `scripts/verify` → `RESULT: PASS` (Secret scan, npm typecheck, npm build, pytest, ruff) — lần đầu PASS kể từ khi có script.
+- E2E: uvicorn + worker thật + giao diện build, máy chủ mô hình GIẢ tương thích OpenAI (không có GPU), Playwright/Chromium → 20/20 bước PASS; log API/worker 0 dòng lỗi. Chuỗi trạng thái trong DB: `pending→claimed→running→needs_review→retrying→pending→claimed→running→succeeded`.
+- Docker: build ảnh bằng Dockerfile của repo (bỏ riêng bước `apt-get` vì proxy sandbox trả 403 cho `deb.debian.org`) → thành công; container API + worker chạy trọn luồng: biên dịch → PUT phiên bản 2 → duyệt → 3 hoá đơn (2 đạt ghi Excel, 1 chờ xác nhận).
+
+**Bug thật phát hiện + đã sửa (có test khoá lại):**
+1. `job_queue` thật không có DEFAULT mức SQL cho `status/attempts` → enqueue lỗi NOT NULL (test cũ dùng DDL tự viết có DEFAULT nên không lộ).
+2. Import vòng khi import một model trước `app.db.base` → chuyển danh sách model vào `app/models/__init__.py`.
+3. Giữ khoá ghi SQLite suốt lời gọi mô hình → "database is locked" (ADR-008).
+4. QC-06 so trùng với chính extraction cũ của cùng chứng từ → bản sửa tay luôn trượt QC-06.
+5. `xlsx.append_rows` ghi tiêu đề xuống dòng 2 với tệp đích mới.
+6. Upload ghi `llm_calls` 2 lần/lời gọi.
+7. Bản build frontend mặc định chế độ dữ liệu giả → bản triển khai không gọi backend.
+8. `LLM_API_KEY` rỗng → header `Bearer ` không hợp lệ, mọi lời gọi mô hình + `/health` lỗi.
+9. Frontend gọi `/workflows/{employee_id}`; nút "Duyệt và kích hoạt", "Từ chối" không gọi API; bảng người dùng ở Cấu hình viết cứng.
+10. `docker-compose.yml` lưu DB ngoài volume `/data`, thiếu worker; `make lint` gọi `npm run lint` không tồn tại.
+11. Tên tệp người dùng chèn thô vào `Content-Disposition`.
+
+**Giả định/quyết định cần Toàn xác nhận:**
+1. ADR-004 — bỏ thư viện CrewAI khỏi `requirements.txt` (code không import; `PROJECT.md` còn ghi CrewAI). `requirements-no-crewai.txt` và `.req_temp.txt` nay trùng/thừa — chưa xoá, chờ Owner.
+2. ADR-006 — sau xác nhận, run chỉ chạy lại nhánh ĐẠT cho chứng từ vừa duyệt.
+3. Quyền: USER được xác nhận chứng từ + xuất báo cáo; MANAGER tạo/duyệt/chạy/huỷ nhân viên AI; `/admin/metrics` mọi người dùng xem (chấm đỏ thanh điều hướng).
+4. Tạo nhân viên AI chỉ lưu khi biên dịch thành công (lỗi → không tạo bản ghi rác, nhưng mô tả vẫn lưu vào audit_logs).
+5. Chỉ số: `minutes_per_doc` = cấu hình `manual_minutes_per_doc` (mặc định 4 phút tiết kiệm/chứng từ); báo cáo chỉ tính chứng từ `ok`.
+
+**Còn lại (chưa làm / chưa kiểm được):**
+- Chạy `make eval-data && make eval` trên máy có vLLM + Qwen3-VL để xác nhận ≥90% trường đúng, ≤25 giây/hoá đơn.
+- Build Docker đầy đủ bước `apt-get` ở mạng có truy cập `deb.debian.org`.
+- LDAP, sao lưu tự động (`BACKUP_PATH`), rate limit đăng nhập, tự host phông JetBrains Mono cho mạng offline, `deskew()` (vẫn no-op từ TASK-006).
+
+---
+
 ## Task: TASK-001 — Hiện thực `domain/validators.py` (V-1 → V-5)
 
 **Status:** DONE (2026-08-28, Claude tự implement + tự verify — có evidence bên dưới)
