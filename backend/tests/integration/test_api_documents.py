@@ -5,9 +5,8 @@ Dùng FastAPI TestClient qua fixture `client` (tests/conftest.py) — get_db/get
 get_storage đều bị ghi đè, KHÔNG chạm DB/kho tệp thật của tiến trình dev,
 KHÔNG gọi mạng thật (LLM giả `fake_llm`).
 
-CHƯA hiện thực (ngoài phạm vi TASK-006, xem NOTE trong conftest.py):
-  - Phân quyền theo vai trò (USER/MANAGER) — chưa có auth cho endpoint này.
-  - PATCH /documents/{id}/extraction (sửa tay của con người).
+Phân quyền, PATCH /documents/{id} và xác nhận thủ công: xem
+tests/integration/test_api_auth.py và test_api_reviews.py.
 """
 
 from __future__ import annotations

@@ -17,15 +17,13 @@ from sqlalchemy.orm import Session
 
 from app.ports.queue import Job
 
-# NOTE (cần Owner đối chiếu): bảng job_queue CHƯA có model SQLAlchemy ORM thật
-# (models/run.py vẫn là docstring stub, app/models chưa có class nào để import)
-# nên file này dùng SQL thô. Lược đồ dưới đây SUY LUẬN từ các câu SQL trong
-# docstring gốc — khi models/run.py + migration Alembic thật được làm, phải đối
-# chiếu lại:
+# Lược đồ bảng job_queue (khớp models/run.py JobQueueEntry + migration 0001 —
+# đã đối chiếu). File này dùng SQL thô có chủ đích: giao thức giành việc cần
+# kiểm soát chính xác từng câu lệnh trong transaction BEGIN IMMEDIATE.
 #
 #   id INTEGER PRIMARY KEY AUTOINCREMENT
 #   run_id INTEGER NOT NULL
-#   status TEXT NOT NULL DEFAULT 'pending'   -- pending|claimed|failed
+#   status TEXT NOT NULL DEFAULT 'pending'   -- pending|claimed|succeeded|failed
 #   priority INTEGER NOT NULL DEFAULT 0
 #   available_at TEXT NOT NULL               -- ISO8601 UTC, vd 2026-08-28T10:00:00.000000Z
 #   claimed_by TEXT
@@ -109,10 +107,15 @@ class SQLiteJobQueue:
         """
         now = _now_utc()
         available_at_str = now if available_at is None else _fmt(available_at)
+        # Ghi TƯỜNG MINH status/attempts: bảng thật (models/run.py + migration 0001)
+        # chỉ có default phía Python của ORM, KHÔNG có DEFAULT ở mức SQL — dựa vào
+        # DEFAULT làm INSERT thô lỗi NOT NULL (lỗi thật phát hiện khi chạy trọn luồng).
         result = session.connection().execute(
             text(
-                "INSERT INTO job_queue (run_id, priority, available_at, max_attempts, created_at) "
-                "VALUES (:run_id, :priority, :available_at, :max_attempts, :created_at)"
+                "INSERT INTO job_queue "
+                "(run_id, status, priority, available_at, attempts, max_attempts, created_at) "
+                "VALUES (:run_id, 'pending', :priority, :available_at, 0, :max_attempts, "
+                ":created_at)"
             ),
             {
                 "run_id": run_id,
@@ -196,10 +199,38 @@ class SQLiteJobQueue:
         finally:
             conn.close()
 
-    def fail(self, job_id: int, error: str) -> None:
+    def extend_lease(self, job_id: int, worker_id: str, *, lease_seconds: int = 300) -> bool:
+        """Gia hạn lease (heartbeat) cho job ĐANG do chính worker này giữ.
+
+        Trả về False nếu job không còn thuộc worker (đã bị reaper thu hồi) —
+        worker nên dừng ghi kết quả của job đó.
+        """
+        conn = self._engine.connect().execution_options(sqlite_begin_immediate=True)
+        try:
+            result = conn.execute(
+                text(
+                    "UPDATE job_queue SET lease_until=:lease_until "
+                    "WHERE id=:job_id AND status='claimed' AND claimed_by=:worker_id"
+                ),
+                {
+                    "lease_until": _fmt(datetime.now(UTC) + timedelta(seconds=lease_seconds)),
+                    "job_id": job_id,
+                    "worker_id": worker_id,
+                },
+            )
+            conn.commit()
+            return int(result.rowcount) == 1
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def fail(self, job_id: int, error: str, *, retry: bool = True) -> None:
         """Đánh dấu job lỗi (tự quản lý transaction riêng).
 
-        Nếu attempts >= max_attempts: chuyển 'failed', KHÔNG thử lại nữa.
+        Nếu retry=False (lỗi vĩnh viễn) hoặc attempts >= max_attempts: chuyển
+        'failed', KHÔNG thử lại nữa.
         Ngược lại: trả về 'pending' với available_at lùi ra tương lai theo
         backoff = min(30 * 2**attempts, 900) + nhiễu ngẫu nhiên nhỏ (tránh
         nhiều worker cùng dậy một lúc — module random chuẩn, không cần
@@ -217,7 +248,7 @@ class SQLiteJobQueue:
             attempts = int(row[0])
             max_attempts = int(row[1])
             now = datetime.now(UTC)
-            if attempts >= max_attempts:
+            if not retry or attempts >= max_attempts:
                 conn.execute(
                     text(
                         "UPDATE job_queue SET status='failed', last_error=:error "
@@ -243,18 +274,31 @@ class SQLiteJobQueue:
             conn.close()
 
     def reap_expired(self) -> int:
-        """Thu hồi job có lease_until đã quá hạn, trả về số lượng đã thu hồi."""
+        """Thu hồi job có lease_until đã quá hạn, trả về số lượng đã thu hồi.
+
+        Job đã dùng hết lượt (attempts >= max_attempts) chuyển thẳng 'failed'
+        kèm lý do "hết hạn giữ việc" — không quay lại pending (tránh vòng lặp
+        vô hạn với job làm sập worker mỗi lần chạy).
+        """
         conn = self._engine.connect().execution_options(sqlite_begin_immediate=True)
         try:
+            now = _now_utc()
+            exhausted = conn.execute(
+                text(
+                    "UPDATE job_queue SET status='failed', last_error=:error "
+                    "WHERE status='claimed' AND lease_until < :now AND attempts >= max_attempts"
+                ),
+                {"now": now, "error": "Hết hạn giữ việc và đã dùng hết số lần thử"},
+            )
             result = conn.execute(
                 text(
                     "UPDATE job_queue SET status='pending' "
                     "WHERE status='claimed' AND lease_until < :now"
                 ),
-                {"now": _now_utc()},
+                {"now": now},
             )
             conn.commit()
-            return int(result.rowcount)
+            return int(result.rowcount) + int(exhausted.rowcount)
         except Exception:
             conn.rollback()
             raise

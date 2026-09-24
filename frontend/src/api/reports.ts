@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { ReportPreview } from './types'
+import type { ExportResult, ReportPreview } from './types'
 
 export interface ReportParams {
   from: string
@@ -8,3 +8,6 @@ export interface ReportParams {
 }
 
 export const previewReport = (p: ReportParams) => api.post<ReportPreview>('/reports/preview', p)
+
+export const exportReport = (p: ReportParams, format: 'xlsx' | 'pdf') =>
+  api.post<ExportResult>('/reports/export', { ...p, format })

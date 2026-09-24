@@ -38,7 +38,7 @@ Nhân viên kế toán/vận hành ở SME Việt Nam — khối lượng chứn
 
 ## Ngoài phạm vi
 
-- Agent tự chủ suy luận kế hoạch nhiều bước (ADR-002) — chỉ dùng CrewAI ở chế độ `Process.sequential`, phạm vi tool giới hạn theo từng tác tử.
+- Agent tự chủ suy luận kế hoạch nhiều bước (ADR-002) — chỉ chạy tuần tự theo thứ tự đã kiểm chứng, phạm vi tool giới hạn theo từng tác tử.
 - Hàng đợi phân tán/scale ngang (Redis + Celery) ở bản triển khai nội bộ — chỉ dành cho kịch bản "web công khai" sau này, chuyển qua cùng giao diện `JobQueue` (ADR-001).
 - Xoá dữ liệu thật: nhân viên AI (`ai_employees`) chỉ archived, không xoá (`DELETE /employees/{id}` chỉ đánh dấu archived — theo docstring `api/v1/employees.py`).
 - Màn hình "hàng đợi chờ xác nhận" tách riêng (ADR-003).
@@ -49,7 +49,7 @@ Nhân viên kế toán/vận hành ở SME Việt Nam — khối lượng chứn
 |---|---|
 | Backend | Python 3.11+, FastAPI 0.115, SQLAlchemy 2.0 + Alembic, Pydantic 2.9, SQLite (WAL mode) |
 | AI Engine | Qwen3-VL 8B Instruct (quantized 4-bit) qua vLLM endpoint (OpenAI-compatible), gọi qua `httpx` |
-| Agent | CrewAI 0.80 — chỉ chế độ tuần tự (ADR-002) |
+| Agent | 3 tác tử tuần tự, Python thuần — không dùng thư viện CrewAI (ADR-002, ADR-004 — chờ Owner xác nhận) |
 | Bảo mật | argon2-cffi (hash mật khẩu), PyJWT (token) |
 | Xử lý tài liệu | Pillow, pypdfium2, opencv-python-headless, numpy |
 | Bảng tính/báo cáo | pandas, openpyxl, ReportLab |

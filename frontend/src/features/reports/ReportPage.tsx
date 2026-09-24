@@ -8,11 +8,12 @@
 import * as React from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { Download, Table2 } from 'lucide-react'
-import { previewReport, type ReportParams } from '@/api/reports'
+import { exportReport, previewReport, type ReportParams } from '@/api/reports'
+import { ApiError, downloadFile } from '@/api/client'
 import { formatMoney } from '@/lib/format'
 import { PageHeader } from '@/components/shared/PageHeader'
-import { EmptyState } from '@/components/shared/States'
-import { Button, Card, Input, Label, Select } from '@/components/ui/primitives'
+import { EmptyState, ErrorState } from '@/components/shared/States'
+import { Button, Callout, Card, Input, Label, Select } from '@/components/ui/primitives'
 
 const GROUPS: { value: ReportParams['group_by']; label: string }[] = [
   { value: 'seller', label: 'Theo nhà cung cấp' },
@@ -30,6 +31,13 @@ export function ReportPage() {
   const [groupBy, setGroupBy] = React.useState<ReportParams['group_by']>('seller')
 
   const preview = useMutation({ mutationFn: () => previewReport({ from, to, group_by: groupBy }) })
+  // Xuất tệp ở backend (openpyxl / ReportLab có phông tiếng Việt) rồi tải về.
+  const download = useMutation({
+    mutationFn: async (format: 'xlsx' | 'pdf') => {
+      const res = await exportReport({ from, to, group_by: groupBy }, format)
+      await downloadFile(res.download_url, res.filename)
+    },
+  })
 
   return (
     <>
@@ -55,15 +63,25 @@ export function ReportPage() {
             <Table2 className="h-4 w-4" /> Xem trước
           </Button>
           {preview.data && (
-            <Button className="ml-auto">
-              <Download className="h-4 w-4" /> Tải về Excel
-            </Button>
+            <div className="ml-auto flex gap-2">
+              <Button loading={download.isPending && download.variables === 'xlsx'} onClick={() => download.mutate('xlsx')}>
+                <Download className="h-4 w-4" /> Tải về Excel
+              </Button>
+              <Button loading={download.isPending && download.variables === 'pdf'} onClick={() => download.mutate('pdf')}>
+                <Download className="h-4 w-4" /> Tải về PDF
+              </Button>
+            </div>
           )}
         </div>
+        {download.error instanceof ApiError && (
+          <Callout tone="error" className="mt-3">{download.error.message}</Callout>
+        )}
       </Card>
 
       <Card className="overflow-hidden">
-        {!preview.data ? (
+        {preview.isError ? (
+          <ErrorState error={preview.error} onRetry={() => preview.mutate()} />
+        ) : !preview.data ? (
           <EmptyState
             title="Chọn kỳ rồi bấm Xem trước"
             hint="Báo cáo tổng hợp số lượng chứng từ, tiền hàng, tiền thuế và tổng thanh toán theo tiêu chí bạn chọn."

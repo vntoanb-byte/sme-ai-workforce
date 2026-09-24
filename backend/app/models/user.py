@@ -1,12 +1,15 @@
 """
 Mô hình người dùng và phân quyền
 
-Định nghĩa bảng: users, roles, user_roles (NHÓM A — TASK-005a).
+Định nghĩa bảng: users, roles, user_roles (NHÓM A — TASK-005a), refresh_tokens
+(migration 0002 — thu hồi phiên khi đăng xuất / xoay vòng refresh token).
 """
 
 from __future__ import annotations
 
-from sqlalchemy import Column, ForeignKey, PrimaryKeyConstraint, String, Table
+from datetime import datetime
+
+from sqlalchemy import Column, DateTime, ForeignKey, PrimaryKeyConstraint, String, Table
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
@@ -63,3 +66,19 @@ class Role(Base, TimestampMixin):
         secondary=user_roles,
         back_populates="roles",
     )
+
+
+class RefreshToken(Base, TimestampMixin):
+    """Refresh token đã cấp — chỉ lưu jti (không lưu token), để thu hồi được.
+
+    Token hợp lệ khi: có bản ghi, revoked_at IS NULL và chưa quá expires_at.
+    Mỗi lần /auth/refresh thu hồi token cũ và cấp token mới (xoay vòng).
+    """
+
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    jti: Mapped[str] = mapped_column(String(64), unique=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

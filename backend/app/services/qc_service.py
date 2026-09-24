@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.domain import qc_rules
@@ -22,10 +22,13 @@ def evaluate(db: Session, extraction: Extraction) -> bool:
 
     - Tạo 1 dòng QCResult cho mỗi quy tắc trong 8 quy tắc (cả pass lẫn fail).
     - KHÔNG tự commit — caller (document_service.ingest) quyết định thời điểm.
-    - KHÔNG tạo bản ghi human_reviews — ở TASK-006 hàng đợi xác nhận chính là
-      danh sách chứng từ lọc status=needs_review, bản ghi review người dùng làm
-      ở task sau (xem IMPLEMENTATION_PLAN.md).
+    - KHÔNG tạo bản ghi human_reviews — hàng đợi xác nhận chính là danh sách
+      chứng từ lọc status=needs_review (ADR-003); human_reviews chỉ ghi QUYẾT
+      ĐỊNH của người duyệt (services/review_service.py).
     """
+    # Idempotent: chạy lại (worker thử lại lần chạy) thay thế kết quả cũ thay vì
+    # nhân đôi số dòng qc_results của cùng một extraction.
+    db.execute(delete(QCResult).where(QCResult.extraction_id == extraction.id))
     data = _build_qc_data(extraction)
     existing_invoice_numbers = _existing_invoice_numbers(db, extraction)
     results, needs_review = qc_rules.run_qc(
@@ -46,11 +49,16 @@ def evaluate(db: Session, extraction: Extraction) -> bool:
 
 
 def _existing_invoice_numbers(db: Session, extraction: Extraction) -> list[str]:
-    """Số hoá đơn của CÁC extraction KHÁC (loại trừ chính nó, phục vụ QC-06)."""
+    """Số hoá đơn của CHỨNG TỪ KHÁC (phục vụ QC-06).
+
+    Loại trừ mọi extraction của cùng document, không chỉ chính nó: bản sửa tay
+    (extraction mới) mang đúng số hoá đơn của bản AI đọc trước đó của cùng chứng
+    từ — so với nó sẽ luôn báo trùng giả (lỗi thật phát hiện qua test luồng sửa).
+    """
     rows = db.execute(
         select(Extraction.invoice_no).where(
             Extraction.invoice_no.is_not(None),
-            Extraction.id != extraction.id,
+            Extraction.document_id != extraction.document_id,
         )
     ).all()
     return [row[0] for row in rows if row[0]]

@@ -3,13 +3,17 @@
  *
  * Có một công tắc duy nhất: biến môi trường VITE_USE_MOCK.
  *   true  → mọi lời gọi được phục vụ bởi src/api/mock/handlers.ts (không cần backend)
- *   false → gọi thật tới /api/v1 qua proxy của Vite
+ *   false → gọi thật tới /api/v1 (dev: qua proxy của Vite)
+ * Không đặt: `npm run dev` dùng dữ liệu giả, còn bản build (`npm run build`, ảnh
+ * Docker) LUÔN gọi backend thật — trước đây bản build cũng mặc định dữ liệu giả,
+ * khiến bản triển khai không bao giờ chạm tới backend (lỗi thật phát hiện khi E2E).
  *
  * Nhờ công tắc này, toàn bộ thư mục features/ không biết backend đã tồn tại hay chưa.
  */
 import { mockRequest } from './mock/handlers'
 
-export const USE_MOCK = import.meta.env.VITE_USE_MOCK !== 'false'
+const MOCK_FLAG = import.meta.env.VITE_USE_MOCK
+export const USE_MOCK = MOCK_FLAG === 'true' || (import.meta.env.DEV && MOCK_FLAG !== 'false')
 
 const BASE = '/api/v1'
 
@@ -37,24 +41,8 @@ export function getAccessToken() { return accessToken }
 
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
-// (2026-08-29, TASK-007) Backend thật MỚI CHỈ có router `documents` (8 router
-// còn lại — auth, employees, workflows, runs, reviews, reports, tools, admin —
-// vẫn là docstring stub, xem IMPLEMENTATION_PLAN.md). VITE_USE_MOCK=false là
-// công tắc CHUNG cho toàn app, nhưng gọi thật vào route chưa tồn tại sẽ vỡ cả
-// Dashboard/Employees/Runs/... — nên dùng DANH SÁCH CHO PHÉP: chỉ tiền tố nằm
-// trong REAL_BACKEND_PATHS mới đi backend thật khi USE_MOCK=false, phần còn
-// lại (kể cả /auth — backend thật chưa có JWT) vẫn đi mock. THÊM tiền tố vào
-// đây khi router tương ứng được hiện thực xong ở backend, KHÔNG xoá cơ chế
-// này cho tới khi đủ cả 8 router.
-const REAL_BACKEND_PATHS = ['/documents']
-
-export async function request<T>(method: Method, path: string, body?: unknown): Promise<T> {
-  const canUseRealBackend = REAL_BACKEND_PATHS.some((p) => path === p || path.startsWith(p + '/') || path.startsWith(p + '?'))
-  if (USE_MOCK || !canUseRealBackend) {
-    return mockRequest<T>(method, path, body)
-  }
-
-  const res = await fetch(BASE + path, {
+async function send(method: Method, path: string, body?: unknown): Promise<Response> {
+  return fetch(BASE + path, {
     method,
     headers: {
       ...(body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
@@ -63,23 +51,77 @@ export async function request<T>(method: Method, path: string, body?: unknown): 
     body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body),
     credentials: 'include',
   })
+}
+
+/**
+ * Mã truy cập sống ngắn (15 phút). Hết hạn giữa phiên thì đổi cookie làm mới
+ * (HttpOnly) lấy mã mới rồi gửi lại yêu cầu — người dùng không bị đăng xuất.
+ * Dùng chung một lời gọi làm mới cho các yêu cầu đồng thời.
+ */
+let refreshing: Promise<boolean> | null = null
+function refreshAccessToken(): Promise<boolean> {
+  refreshing ??= fetch(BASE + '/auth/refresh', { method: 'POST', credentials: 'include' })
+    .then(async (res) => {
+      if (!res.ok) return false
+      const json = (await res.json()) as { access_token: string }
+      setAccessToken(json.access_token)
+      return true
+    })
+    .catch(() => false)
+    .finally(() => { refreshing = null })
+  return refreshing
+}
+
+async function toError(res: Response): Promise<ApiError> {
+  const text = await res.text()
+  let json: unknown = null
+  try { json = text ? JSON.parse(text) : null } catch { json = null }
+  const e = (json as { error?: { code: string; message: string; details?: unknown[]; trace_id?: string } } | null)?.error
+  return new ApiError(
+    res.status,
+    e?.code ?? 'UNKNOWN',
+    e?.message ?? 'Hệ thống gặp sự cố không xác định. Vui lòng thử lại.',
+    e?.details,
+    e?.trace_id,
+  )
+}
+
+export async function request<T>(method: Method, path: string, body?: unknown): Promise<T> {
+  if (USE_MOCK) {
+    return mockRequest<T>(method, path, body)
+  }
+
+  let res = await send(method, path, body)
+  if (res.status === 401 && !path.startsWith('/auth/') && (await refreshAccessToken())) {
+    res = await send(method, path, body)
+  }
 
   if (res.status === 204) return undefined as T
-
+  if (!res.ok) throw await toError(res)
   const text = await res.text()
-  const json: unknown = text ? JSON.parse(text) : null
+  return (text ? JSON.parse(text) : null) as T
+}
 
-  if (!res.ok) {
-    const e = (json as { error?: { code: string; message: string; details?: unknown[]; trace_id?: string } } | null)?.error
-    throw new ApiError(
-      res.status,
-      e?.code ?? 'UNKNOWN',
-      e?.message ?? 'Hệ thống gặp sự cố không xác định. Vui lòng thử lại.',
-      e?.details,
-      e?.trace_id,
-    )
+/**
+ * Tải tệp có xác thực (báo cáo, tệp kết quả lần chạy) rồi mở hộp thoại lưu.
+ * Không dùng <a href> trực tiếp để luôn kèm mã truy cập mới nhất.
+ */
+export async function downloadFile(url: string, filename: string): Promise<void> {
+  if (USE_MOCK) {
+    throw new ApiError(501, 'MOCK', 'Chế độ dữ liệu giả không có tệp để tải về.')
   }
-  return json as T
+  const path = url.startsWith(BASE) ? url.slice(BASE.length) : url
+  let res = await send('GET', path)
+  if (res.status === 401 && (await refreshAccessToken())) res = await send('GET', path)
+  if (!res.ok) throw await toError(res)
+  const blobUrl = URL.createObjectURL(await res.blob())
+  const a = document.createElement('a')
+  a.href = blobUrl
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
 }
 
 export const api = {

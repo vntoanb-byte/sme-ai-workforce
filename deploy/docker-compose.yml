@@ -1,5 +1,18 @@
 name: sme-ai-workforce
 
+# Triển khai nội bộ (offline): vLLM + API + tiến trình xử lý nền.
+# Dữ liệu (SQLite, kho tệp, sao lưu) nằm trong volume app-data gắn tại /data —
+# PHẢI trỏ DATABASE_URL/STORAGE_PATH vào /data, nếu không dữ liệu nằm trong lớp
+# ghi của container và MẤT khi dựng lại container.
+
+x-app-env: &app-env
+  LLM_BASE_URL: http://vllm:8000/v1
+  LLM_MODEL: Qwen3-VL-8B
+  DATABASE_URL: sqlite:////data/app.db
+  STORAGE_PATH: /data/artifacts
+  BACKUP_PATH: /data/backup
+  WATCH_PATH: /mnt/scan
+
 services:
   vllm:
     image: vllm/vllm-openai:v0.11.0
@@ -29,16 +42,43 @@ services:
     build:
       context: ..
       dockerfile: backend/Dockerfile
+    image: sme-ai-workforce:1.0.0
     depends_on:
       vllm: { condition: service_healthy }
     env_file: ../backend/.env
-    environment:
-      LLM_BASE_URL: http://vllm:8000/v1
-      LLM_MODEL: Qwen3-VL-8B
+    environment: *app-env
     volumes:
       - app-data:/data
       - ${SCAN_DIR:-../data/scan}:/mnt/scan:ro   # thư mục hồ sơ, CHỈ ĐỌC
     ports: ["8080:8080"]
+    restart: unless-stopped
+
+  # Tiến trình xử lý nền + bộ lập lịch. Chờ API nâng cấp lược đồ xong mới chạy
+  # (app/db/init_db.wait_for_schema). Chỉ MỘT worker bật lịch.
+  worker:
+    image: sme-ai-workforce:1.0.0
+    depends_on: [app]
+    env_file: ../backend/.env
+    environment: *app-env
+    command: ["python", "-m", "app.workers.worker"]
+    volumes:
+      - app-data:/data
+      - ${SCAN_DIR:-../data/scan}:/mnt/scan:ro
+    stop_grace_period: 60s           # SIGTERM: làm xong job hiện tại rồi thoát
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+
+  # HTTPS qua nginx (tuỳ chọn): đặt chứng chỉ vào deploy/certs rồi
+  #   docker compose --profile https up -d
+  nginx:
+    image: nginx:1.27-alpine
+    profiles: ["https"]
+    depends_on: [app]
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    ports: ["443:443"]
     restart: unless-stopped
 
 volumes:

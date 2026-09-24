@@ -32,7 +32,7 @@ openpyxl==3.1.*
 reportlab==4.2.*
 
 # ─── Tác tử ───
-crewai==0.80.*
+# Không dùng thư viện CrewAI: agents/crew.py điều phối tuần tự thuần Python (ADR-004).
 
 # ─── Lập lịch ───
 apscheduler==3.10.*

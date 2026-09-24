@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import base64
 import time
-from typing import Any, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 import httpx
 
@@ -33,9 +34,12 @@ class OpenAICompatibleLLM:
     ) -> None:
         self._model = model or settings.LLM_MODEL
         self._timeout = timeout or settings.LLM_TIMEOUT_SEC
+        key = api_key or settings.LLM_API_KEY
         self._client = httpx.Client(
             base_url=base_url or settings.LLM_BASE_URL,
-            headers={"Authorization": f"Bearer {api_key or settings.LLM_API_KEY}"},
+            # vLLM nội bộ thường không cần khoá: KHÔNG gửi "Bearer " rỗng (httpx từ
+            # chối giá trị header không hợp lệ — lỗi thật khi chạy container).
+            headers={"Authorization": f"Bearer {key}"} if key else {},
             timeout=self._timeout,
         )
         # Bộ ngắt mạch đơn giản, dùng bộ nhớ tiến trình (đủ cho worker đơn
@@ -48,9 +52,9 @@ class OpenAICompatibleLLM:
         self,
         messages: Sequence[dict[str, Any]],
         *,
-        schema: Optional[dict[str, Any]] = None,
-        images: Optional[Sequence[bytes]] = None,
-        timeout: Optional[float] = None,
+        schema: dict[str, Any] | None = None,
+        images: Sequence[bytes] | None = None,
+        timeout: float | None = None,
     ) -> LLMResult:
         now = time.monotonic()
         if now < self._circuit_open_until:
@@ -104,7 +108,7 @@ class OpenAICompatibleLLM:
         except (KeyError, IndexError) as exc:
             raise LLMInvalidOutput(f"Phản hồi thiếu trường bắt buộc: {exc}") from exc
 
-        parsed: Optional[dict[str, Any]] = None
+        parsed: dict[str, Any] | None = None
         if schema is not None:
             parsed = self._parse_json_content(content)
 
@@ -124,7 +128,7 @@ class OpenAICompatibleLLM:
 
     @staticmethod
     def _attach_images(
-        messages: list[dict[str, Any]], images: Optional[Sequence[bytes]]
+        messages: list[dict[str, Any]], images: Sequence[bytes] | None
     ) -> list[dict[str, Any]]:
         """Ghép ảnh vào message cuối cùng có role='user', dạng data URI base64.
 

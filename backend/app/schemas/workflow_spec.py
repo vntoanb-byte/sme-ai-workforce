@@ -60,7 +60,7 @@ class TriggerSpec(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _check_required_fields_by_type(self) -> "TriggerSpec":
+    def _check_required_fields_by_type(self) -> TriggerSpec:
         """Bảo đảm tính nhất quán cấu trúc tối thiểu theo từng loại trigger.
 
         Đây là ràng buộc cấu trúc (structural), không phải kiểm chứng ngữ

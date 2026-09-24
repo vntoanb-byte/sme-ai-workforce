@@ -15,5 +15,7 @@ export const getRun = (id: number) => api.get<RunDetail>(`/runs/${id}`)
 export const triggerRun = (employeeId: number) =>
   api.post<{ id: number }>('/runs', { employee_id: employeeId })
 
+export const cancelRun = (id: number) => api.post<RunRow>(`/runs/${id}/cancel`)
+
 /** Đường dẫn kênh SSE truyền nhật ký thời gian thực. */
 export const runLogsUrl = (id: number) => `/api/v1/runs/${id}/logs`

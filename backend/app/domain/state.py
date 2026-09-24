@@ -7,9 +7,10 @@ trạng thái phải đi qua đây, không được gán trực tiếp vào cộ
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Callable, Optional, Protocol
+from typing import Any, Protocol
 
 
 class RunStatus(str, Enum):
@@ -125,7 +126,7 @@ def transition(
     run: RunLike,
     to: RunStatus,
     reason: str,
-    log_fn: Optional[LogFn] = None,
+    log_fn: LogFn | None = None,
 ) -> RunLike:
     """Chuyển trạng thái của `run` sang `to`, kèm lý do.
 
@@ -168,7 +169,7 @@ def transition(
     if not can_transition(from_status, to_status):
         raise InvalidTransitionError(from_status, to_status, getattr(run, "id", None))
 
-    at = datetime.now(timezone.utc)
+    at = datetime.now(UTC)
     run.status = to_status
 
     if log_fn is not None:

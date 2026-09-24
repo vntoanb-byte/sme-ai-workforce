@@ -13,6 +13,11 @@ compile() là hàm public duy nhất, điều phối hai bước trên kèm th�
 lần: mỗi lần thất bại (lỗi kiểm chứng hoặc lỗi cấu trúc Pydantic) đều đính kèm
 thông báo lỗi cụ thể của lần trước vào prompt cho lần gọi tiếp theo.
 
+Nguồn tri thức của prompt là domain/templates/ (registry): bước phân loại nhận
+danh mục mẫu kèm câu ví dụ (few-shot), bước điền tham số nhận BỘ KHUNG của mẫu
+đã chọn (step_key, tool_code, edges cố định) — mô hình chỉ điền tên, lịch chạy
+và tham số, không tự bịa công cụ (V-1 vẫn kiểm lại).
+
 Ghi chú phiên bản prompt: mỗi khi đổi nội dung message gửi mô hình thì tăng
 PROMPT_VERSION và ghi log kèm version để về sau so sánh được giữa các phiên bản
 prompt (không thêm field prompt_version vào WorkflowSpec — model đó có
@@ -21,19 +26,21 @@ model_config extra="forbid").
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from typing import Any, cast, get_args
 
 import structlog
 from pydantic import ValidationError
 
+from app.domain.templates.registry import get_template, list_templates, skeleton_spec
 from app.domain.validators import SpecError, validate_spec
 from app.ports.llm import LLMInvalidOutput, LLMProvider, LLMTimeout, LLMUnavailable
 from app.schemas.workflow_spec import TemplateCode, WorkflowSpec
 
 # Phiên bản prompt gửi mô hình. Tăng lên mỗi khi đổi nội dung message ở các hàm
 # classify_intent/extract_params bên dưới.
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 
 # Số lần thử tối đa của khâu điền tham số trong compile().
 MAX_COMPILE_ATTEMPTS = 3
@@ -69,10 +76,36 @@ _COMPILE_1_MESSAGE = (
     "chỉ máy chủ mô hình và cấu hình LLM, rồi thử lại sau."
 )
 
+# Dùng lại ở services/compiler_service.py khi lỗi mô hình xảy ra ngay ở bước phân loại.
+COMPILE_1_MESSAGE = _COMPILE_1_MESSAGE
+
 _COMPILE_2_MESSAGE = (
     "Mô hình liên tục trả về kết quả không đúng cấu trúc quy trình sau 3 lần thử. "
     "Hãy thử mô tả công việc theo cách khác, cụ thể hơn."
 )
+
+
+def _template_catalog() -> str:
+    """Danh mục mẫu dạng văn bản cho prompt phân loại (few-shot từ registry)."""
+    lines: list[str] = []
+    for tpl in list_templates():
+        lines.append(f"- {tpl.code}: {tpl.name}. {tpl.description}")
+        lines.extend(f'    ví dụ: "{example}"' for example in tpl.examples)
+    return "\n".join(lines)
+
+
+def _template_skeleton(template_code: str) -> str:
+    """Bộ khung + danh sách tham số cần điền của mẫu, dạng văn bản cho prompt."""
+    tpl = get_template(template_code)
+    if tpl is None:
+        return ""
+    params = "\n".join(f"- {key}: {desc}" for key, desc in tpl.params.items())
+    return (
+        "Bộ khung của mẫu (GIỮ NGUYÊN step_key, tool_code và edges, chỉ điền giá trị "
+        "config/trigger/name):\n"
+        + json.dumps(skeleton_spec(template_code), ensure_ascii=False)
+        + ("\nTham số cần điền từ mô tả:\n" + params if params else "")
+    )
 
 
 def classify_intent(text: str, llm: LLMProvider) -> TemplateCode | None:
@@ -90,7 +123,8 @@ def classify_intent(text: str, llm: LLMProvider) -> TemplateCode | None:
                 "Bạn là bộ phận phân loại quy trình của hệ thống nhân viên AI cho "
                 "doanh nghiệp nhỏ. Đọc mô tả công việc bằng tiếng Việt của người "
                 "dùng và chọn đúng MỘT mẫu quy trình phù hợp nhất trong danh sách 5 "
-                "mẫu. Trả về JSON theo schema yêu cầu, không thêm giải thích."
+                "mẫu. Trả về JSON theo schema yêu cầu, không thêm giải thích.\n"
+                "Danh sách mẫu:\n" + _template_catalog()
             ),
         },
         {"role": "user", "content": text},
@@ -110,6 +144,7 @@ def extract_params(
     llm: LLMProvider,
     *,
     previous_errors: list[str] | None = None,
+    hints: Mapping[str, str] | None = None,
 ) -> WorkflowSpec:
     """Điền tham số của mẫu `template_code` thành WorkflowSpec.
 
@@ -117,7 +152,8 @@ def extract_params(
     WorkflowSpec.json_schema() — không có vòng lặp bên trong hàm này (vòng lặp
     thử lại nằm ở compile()). Nếu `previous_errors` có giá trị (lỗi của lần thử
     trước), chúng được đính kèm rõ ràng vào message để mô hình sửa ở lần gọi
-    tiếp theo.
+    tiếp theo. `hints` là giá trị mặc định của môi trường (vd. thư mục quét trên
+    máy chủ) do tầng services truyền vào — domain không tự đọc cấu hình.
 
     Raises:
         ValidationError: kết quả không khớp cấu trúc WorkflowSpec — lỗi này để
@@ -132,7 +168,9 @@ def extract_params(
                 "WorkflowSpec theo đúng JSON schema yêu cầu: đặt tên ngắn gọn, chọn "
                 "trigger phù hợp (ưu tiên manual nếu mô tả không nói rõ lịch chạy), "
                 "dựng các bước và cạnh nối đúng tinh thần của mẫu. Trả về JSON khớp "
-                "schema, không thêm giải thích."
+                "schema, không thêm giải thích.\n"
+                + _template_skeleton(template_code)
+                + "".join(f"\nGiá trị mặc định — {k}: {v}" for k, v in (hints or {}).items())
             ),
         },
         {"role": "user", "content": text},
@@ -155,6 +193,8 @@ def compile(
     text: str,
     llm: LLMProvider,
     tools: Mapping[str, Any],
+    *,
+    hints: Mapping[str, str] | None = None,
 ) -> tuple[WorkflowSpec | None, list[SpecError]]:
     """Biên dịch mô tả tiếng Việt thành WorkflowSpec — hàm public duy nhất.
 
@@ -197,7 +237,7 @@ def compile(
         )
         try:
             spec = extract_params(
-                text, template_code, llm, previous_errors=previous_errors
+                text, template_code, llm, previous_errors=previous_errors, hints=hints
             )
         except (LLMTimeout, LLMInvalidOutput, LLMUnavailable) as exc:
             # Lỗi tầng mô hình — ghi chi tiết để vận hành, còn message trả về

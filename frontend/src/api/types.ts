@@ -1,9 +1,9 @@
 /**
  * Kiểu dữ liệu dùng chung giữa giao diện và backend.
  *
- * TẠM THỜI viết tay. Khi backend đã có điểm cuối /api/v1/openapi.json, thay
- * toàn bộ tệp này bằng bản sinh tự động:  npm run gen:api
- * Giữ nguyên tên kiểu để không phải sửa chỗ khác.
+ * Viết tay, đối chiếu với lược đồ backend (backend/app/schemas/*, OpenAPI tại
+ * /api/v1/openapi.json). Có thể sinh tự động bằng `npm run gen:api` nhưng khi
+ * đó phải giữ nguyên tên kiểu để không phải sửa chỗ khác.
  */
 
 // ─────────────────────────── Chung ───────────────────────────
@@ -50,6 +50,8 @@ export interface Employee {
   last_run_status: RunStatus | null
   runs_30d: number
   created_at: string
+  /** Quy trình hiện hành (đã duyệt) hoặc bản nháp mới nhất — null nếu chưa có. */
+  workflow_id: number | null
 }
 
 export type TemplateCode =
@@ -66,6 +68,8 @@ export interface WorkflowStep {
   label: string
   config: Record<string, string | number | boolean>
   branch?: 'pass' | 'fail'
+  on_error?: 'stop' | 'skip' | 'retry'
+  retry_max?: number
 }
 
 export interface Workflow {
@@ -74,8 +78,17 @@ export interface Workflow {
   version: number
   status: 'pending' | 'approved' | 'archived'
   template_code: TemplateCode
-  trigger: { type: 'manual' | 'cron' | 'file_watch'; label: string }
+  name?: string
+  description?: string | null
+  trigger: {
+    type: 'manual' | 'cron' | 'file_watch'
+    label: string
+    cron_expr?: string | null
+    watch_path?: string | null
+    timezone?: string | null
+  }
   steps: WorkflowStep[]
+  edges?: { from_key: string; to_key: string; condition: string | null }[]
   approved_at: string | null
 }
 
@@ -168,12 +181,22 @@ export interface RunStep {
   duration_ms: number | null
 }
 
+export interface RunOutput {
+  artifact_id: number
+  filename: string | null
+  step_key: string | null
+  download_url: string
+}
+
 export interface RunDetail extends RunRow {
   steps: RunStep[]
   stats: { read: number; passed: number; needs_review: number; total_amount: number }
+  /** Tệp kết quả (Excel, báo cáo...) các bước đã tạo ra trong lần chạy. */
+  outputs?: RunOutput[]
 }
 
 export interface LogLine {
+  id?: number
   ts: string
   level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
   message: string
@@ -191,6 +214,17 @@ export interface Metrics {
   needs_review_total: number
   needs_review_open: number
   llm_status: 'ok' | 'degraded' | 'down'
+  runs_this_month?: number
+  avg_llm_latency_ms?: number | null
+  tokens_this_month?: number
+}
+
+export interface LlmTestResult {
+  ok: boolean
+  model: string
+  base_url: string
+  latency_ms: number
+  error: string | null
 }
 
 // ─────────────────────────── Báo cáo ───────────────────────────
@@ -208,4 +242,10 @@ export interface ReportPreview {
   group_by: 'seller' | 'month' | 'vat_rate'
   rows: ReportRow[]
   grand_total: number
+}
+
+export interface ExportResult {
+  artifact_id: number
+  filename: string
+  download_url: string
 }

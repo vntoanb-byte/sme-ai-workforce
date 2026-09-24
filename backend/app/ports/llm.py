@@ -8,14 +8,15 @@ cấp.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Optional, Protocol, Sequence
+from typing import Any, Protocol
 
 
 @dataclass(frozen=True)
 class LLMResult:
     content: str
-    parsed: Optional[dict[str, Any]]
+    parsed: dict[str, Any] | None
     model: str
     token_in: int
     token_out: int
@@ -39,9 +40,9 @@ class LLMProvider(Protocol):
         self,
         messages: Sequence[dict[str, Any]],
         *,
-        schema: Optional[dict[str, Any]] = None,
-        images: Optional[Sequence[bytes]] = None,
-        timeout: Optional[float] = None,
+        schema: dict[str, Any] | None = None,
+        images: Sequence[bytes] | None = None,
+        timeout: float | None = None,
     ) -> LLMResult:
         """Gọi mô hình một lần, trả về LLMResult.
 

@@ -17,6 +17,21 @@ services:
     volumes:
       - ../backend:/app
       - ../data:/data
-    # 8123 = cổng frontend/vite.config.ts đang proxy /api tới
+    # Chạy frontend dev trỏ vào cổng này: VITE_API_TARGET=http://localhost:8123 npm run dev
     ports: ["8123:8080"]
     command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
+
+  worker:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    env_file: ../backend/.env
+    environment:
+      LLM_BASE_URL: http://host.docker.internal:1234/v1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ../backend:/app
+      - ../data:/data
+    depends_on: [app]
+    command: python -m app.workers.worker

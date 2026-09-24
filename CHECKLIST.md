@@ -2,7 +2,21 @@
 
 > Mỗi `[x]` PHẢI có bằng chứng (log/output/link) đi kèm. Không đánh dấu `[x]` vì "AI nghĩ rằng đã làm".
 
-## Task hiện tại: TASK-005a — `models/user.py` + `employee.py` + `workflow.py`
+## Task hiện tại: TASK-008 — Hoàn thiện toàn bộ hệ thống
+
+- [x] Requirement satisfied — 9 router/38 điểm cuối, 14 công cụ, 5 mẫu, worker/lập lịch, nối giao diện, script demo/đánh giá, README (lưu đồ, công nghệ, lựa chọn model, báo cáo)
+- [x] SPEC satisfied — 5 user flow của SPEC.md chạy thật qua giao diện (E2E); 8/8 quy tắc QC có ca đạt + không đạt; `GET /health` đủ 3 check. Tiêu chí ≥90%/≤25s: **CHƯA đo được trên model thật** (không có GPU) — có sẵn công cụ đo `make eval`
+- [x] Code implemented
+- [x] Unit + integration tests passed — evidence: `pytest` → `276 passed`, độ phủ 92%
+- [x] Build passed — evidence: `scripts/verify` → `[PASS] npm typecheck`, `[PASS] npm build`, `RESULT: PASS`; Docker build (trừ bước apt bị proxy chặn) + container chạy trọn luồng
+- [x] E2E — evidence: Playwright/Chromium 20/20 PASS trên uvicorn + worker thật, log 0 lỗi
+- [x] Security checked — evidence: mọi điểm cuối yêu cầu JWT + test phân quyền 401/403 (`test_api_auth.py`); argon2; refresh token thu hồi được; cookie chỉ nhận cho GET; chặn đường dẫn ngoài thư mục (`test_path_guard`); `JWT_SECRET` mẫu không được dùng; secret scan PASS
+- [x] No secrets committed — `scripts/verify` "Secret scan (diff)" → PASS; `.env` không commit
+- [x] Architecture respected — grep: `domain/` chỉ import `app.domain|app.ports|app.schemas`; không `os.environ` ngoài `core/config.py`; `run.status` chỉ gán trong `domain/state.py`; tiền tệ Decimal (float chỉ ở biên API); lược đồ mới qua migration 0002
+- [x] No forbidden changes — không đổi SPEC, không xoá dữ liệu/test, không git nguy hiểm; thay đổi kiến trúc có ADR (004–008) chờ Owner xác nhận
+- [x] Documentation updated — README, ARCHITECTURE, SECURITY, DECISIONS, IMPLEMENTATION_PLAN, memory
+
+## Task đã xong: TASK-005a — `models/user.py` + `employee.py` + `workflow.py`
 
 - [x] Requirement satisfied — 9 bảng đúng lược đồ Claude tự thiết kế (không có Phụ lục A gốc)
 - [x] SPEC satisfied — đối chiếu docstring gốc + frontend types.ts/mock data (nguồn cụ thể hơn SPEC.md)
