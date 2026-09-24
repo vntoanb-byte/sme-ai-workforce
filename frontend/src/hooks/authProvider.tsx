@@ -73,7 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (USE_MOCK) sessionStorage.setItem(MOCK_KEY, JSON.stringify(u))
     },
     logout: () => {
-      apiLogout()
+      void apiLogout().catch(() => undefined)
       setUser(null)
       if (USE_MOCK) sessionStorage.removeItem(MOCK_KEY)
     },

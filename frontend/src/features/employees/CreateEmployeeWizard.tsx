@@ -12,7 +12,8 @@
 import * as React from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Check, Sparkles } from 'lucide-react'
-import { createEmployee } from '@/api/employees'
+import { approveWorkflow, createEmployee } from '@/api/employees'
+import { ApiError } from '@/api/client'
 import type { Workflow, WorkflowStep } from '@/api/types'
 import { Dialog } from '@/components/ui/overlay'
 import { Button, Callout, Input, Label, Spinner, Textarea } from '@/components/ui/primitives'
@@ -75,11 +76,19 @@ export function CreateEmployeeWizard({ open, onClose }: { open: boolean; onClose
 
   const start = () => { setErrors([]); setWorkflow(null); compile.mutate() }
 
-  const finish = () => {
-    qc.invalidateQueries({ queryKey: ['employees'] })
-    onClose()
-    reset()
-  }
+  // Duyệt quy trình ở backend: chuyển approved, bật nhân viên AI, đăng ký lịch chạy.
+  const approve = useMutation({
+    mutationFn: (wf: Workflow) => approveWorkflow(wf.id, wf.employee_id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['employees'] })
+      onClose()
+      reset()
+    },
+  })
+  const approveError = approve.error instanceof ApiError ? approve.error : null
+
+  const finish = () => { if (workflow) approve.mutate(workflow) }
+
 
   const selectedStep: WorkflowStep | null =
     workflow?.steps.find((s) => s.step_key === selected) ?? null
@@ -89,15 +98,15 @@ export function CreateEmployeeWizard({ open, onClose }: { open: boolean; onClose
   return (
     <Dialog
       open={open}
-      onClose={() => { onClose(); reset() }}
+      onClose={() => { if (workflow) qc.invalidateQueries({ queryKey: ['employees'] }); onClose(); reset() }}
       title={step2 ? 'Xem lại quy trình' : 'Tạo nhân viên AI'}
       subtitle={step2 ? 'Bước 2 / 2 — Kiểm tra trước khi kích hoạt' : 'Bước 1 / 2 — Mô tả công việc'}
       width={step2 ? 'max-w-5xl' : 'max-w-2xl'}
       footer={
         step2 ? (
           <>
-            <Button onClick={() => { setWorkflow(null); setSelected(null) }}>Sửa lại mô tả</Button>
-            <Button variant="success" className="ml-auto" onClick={finish}>
+            <Button onClick={() => { setWorkflow(null); setSelected(null); approve.reset() }}>Sửa lại mô tả</Button>
+            <Button variant="success" className="ml-auto" loading={approve.isPending} onClick={finish}>
               <Check className="h-4 w-4" /> Duyệt và kích hoạt
             </Button>
           </>
@@ -212,9 +221,16 @@ export function CreateEmployeeWizard({ open, onClose }: { open: boolean; onClose
               khớp nhau, đường dẫn thư mục có thật.
             </Callout>
 
-            <Callout tone="warn" title="Lưu ý">
-              Quy trình chỉ bắt đầu chạy sau khi bạn bấm <b>Duyệt và kích hoạt</b>.
-            </Callout>
+            {approveError ? (
+              <Callout tone="error" title="Chưa duyệt được">
+                {approveError.message}
+              </Callout>
+            ) : (
+              <Callout tone="warn" title="Lưu ý">
+                Quy trình chỉ bắt đầu chạy sau khi bạn bấm <b>Duyệt và kích hoạt</b>.
+                Đóng cửa sổ lúc này thì nhân viên AI được lưu ở trạng thái nháp.
+              </Callout>
+            )}
           </div>
         </div>
       )}

@@ -39,7 +39,7 @@ from app.services import qc_service
 from app.utils import images
 from app.utils.hashing import sha256_bytes
 
-_PROMPT = (
+EXTRACTION_PROMPT = (
     "Đây là ảnh hoá đơn giá trị gia tăng Việt Nam. Hãy trích xuất đầy đủ các "
     "trường dữ liệu theo đúng lược đồ JSON được chỉ định. Chỉ trả về JSON hợp "
     "lệ, không thêm chú thích hay văn bản khác."
@@ -123,7 +123,7 @@ def extract_document(
 
     try:
         result = llm.complete(
-            messages=[{"role": "user", "content": _PROMPT}],
+            messages=[{"role": "user", "content": EXTRACTION_PROMPT}],
             schema=invoice_json_schema(),
             images=[image_bytes],
         )

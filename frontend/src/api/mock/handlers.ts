@@ -21,6 +21,7 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const docs: DocumentRow[] = [...MOCK_DOCS]
 const employees: Employee[] = [...MOCK_EMPLOYEES]
 const edited = new Map<number, DocumentDetail>()
+const mockWorkflows = new Map<number, Workflow>()
 
 function parse(path: string): { pathname: string; q: URLSearchParams } {
   const [pathname, search = ''] = path.split('?')
@@ -49,6 +50,30 @@ export async function mockRequest<T>(method: string, path: string, body?: unknow
       })
     }
     return out({ access_token: 'mock-token', refresh_token: 'mock-refresh', user: rec.user } satisfies TokenPair)
+  }
+
+  if (method === 'POST' && (pathname === '/auth/logout' || pathname === '/auth/refresh')) {
+    return out(undefined)
+  }
+
+  // ─────────── Quản trị ───────────
+  if (method === 'GET' && pathname === '/admin/users') {
+    return out(Object.values(MOCK_USERS).map((u) => u.user))
+  }
+  if (method === 'POST' && pathname === '/admin/llm/test') {
+    return out({ ok: true, model: 'Qwen3-VL-8B', base_url: 'http://vllm:8000/v1', latency_ms: 840, error: null })
+  }
+  if (method === 'POST' && pathname === '/reports/export') {
+    return out({ artifact_id: 1, filename: 'BaoCao.xlsx', download_url: '/api/v1/reports/1/download' })
+  }
+  if (method === 'POST' && seg[0] === 'reviews' && seg[2] === 'resolve') {
+    const { action } = body as { action: string }
+    const row = docs.find((d) => d.id === Number(seg[1]))
+    if (row) { row.status = action === 'reject' ? 'rejected' : 'ok'; row.qc_failed = 0 }
+    return out({ id: Number(seg[1]), status: row?.status ?? 'ok' })
+  }
+  if (method === 'POST' && seg[0] === 'runs' && seg[2] === 'cancel') {
+    return out({ ...MOCK_RUNS[0], status: 'CANCELLED' })
   }
 
   // ─────────── Chỉ số bảng điều khiển ───────────
@@ -100,21 +125,27 @@ export async function mockRequest<T>(method: string, path: string, body?: unknow
       } satisfies CompileResult)
     }
     const wf: Workflow = { ...MOCK_WORKFLOW, id: 900 + employees.length, employee_id: 900 + employees.length, status: 'pending', version: 1, approved_at: null }
+    mockWorkflows.set(wf.id, wf)
     const emp: Employee = {
       id: 900 + employees.length, name, job_description, status: 'draft',
       schedule_label: 'Mỗi ngày 08:00', next_run_at: null, last_run_at: null,
       last_run_status: null, runs_30d: 0, created_at: new Date().toISOString(),
+      workflow_id: wf.id,
     }
     employees.unshift(emp)
     return out({ ok: true, workflow: wf } satisfies CompileResult)
   }
 
   // ─────────── Quy trình ───────────
-  if (method === 'GET' && seg[0] === 'workflows' && seg[1]) return out(MOCK_WORKFLOW)
+  if (method === 'GET' && seg[0] === 'workflows' && seg[1]) {
+    return out(mockWorkflows.get(Number(seg[1])) ?? { ...MOCK_WORKFLOW, id: Number(seg[1]) })
+  }
   if (method === 'POST' && seg[0] === 'workflows' && seg[2] === 'approve') {
     const e = employees.find((x) => x.id === Number(q.get('employee_id') ?? 0)) ?? employees[0]
     if (e) e.status = 'active'
-    return out({ ...MOCK_WORKFLOW, status: 'approved' })
+    const approved: Workflow = { ...(mockWorkflows.get(Number(seg[1])) ?? MOCK_WORKFLOW), status: 'approved', approved_at: new Date().toISOString() }
+    mockWorkflows.set(approved.id, approved)
+    return out(approved)
   }
 
   // ─────────── Chứng từ ───────────

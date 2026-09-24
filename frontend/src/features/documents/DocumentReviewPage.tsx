@@ -22,13 +22,14 @@ import * as React from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, ArrowLeft, Check, Minus, Paperclip, Plus, RotateCw, Stamp, X } from 'lucide-react'
-import { getDocument, listDocuments, patchExtraction } from '@/api/documents'
+import { getDocument, listDocuments, patchExtraction, resolveReview } from '@/api/documents'
+import { ApiError } from '@/api/client'
 import type { InvoiceData, QCResult } from '@/api/types'
 import { formatDuration } from '@/lib/format'
 import { cn } from '@/lib/cn'
 import { SplitView } from '@/components/shared/SplitView'
 import { ErrorState } from '@/components/shared/States'
-import { Button, Card, Skeleton } from '@/components/ui/primitives'
+import { Button, Callout, Card, Skeleton } from '@/components/ui/primitives'
 import { InvoiceForm } from './InvoiceForm'
 import { InvoicePreview } from './InvoicePreview'
 
@@ -67,6 +68,17 @@ export function DocumentReviewPage() {
       else nav(backTo)
     },
   })
+
+  const reject = useMutation({
+    mutationFn: () => resolveReview(docId, 'reject'),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['documents'] })
+      qc.invalidateQueries({ queryKey: ['metrics'] })
+      if (nextDoc) nav(`/documents/${nextDoc.id}${backQuery ? `?back=${backQuery}` : ''}`)
+      else nav(backTo)
+    },
+  })
+  const actionError = [save.error, reject.error].find((e) => e instanceof ApiError) as ApiError | undefined
 
   const confirm = React.useCallback(() => { if (draft) save.mutate(draft) }, [draft])
 
@@ -118,7 +130,13 @@ export function DocumentReviewPage() {
         </div>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <Button variant="danger" onClick={() => nav(backTo)}>
+          <Button
+            variant="danger"
+            loading={reject.isPending}
+            disabled={doc?.status !== 'needs_review'}
+            title={doc?.status !== 'needs_review' ? 'Chỉ từ chối được chứng từ đang chờ xác nhận' : undefined}
+            onClick={() => reject.mutate()}
+          >
             <X className="h-4 w-4" /> Từ chối
           </Button>
           <Button onClick={() => (nextDoc ? nav(`/documents/${nextDoc.id}`) : nav(backTo))}>
@@ -129,6 +147,19 @@ export function DocumentReviewPage() {
           </Button>
         </div>
       </header>
+
+      {actionError && (
+        <Callout tone="error" className="mb-3.5">
+          {actionError.message}
+          {actionError.details && actionError.details.length > 0 && (
+            <ul className="mt-1 list-disc pl-5">
+              {(actionError.details as { loc?: string[]; message?: string }[]).map((d, i) => (
+                <li key={i}>{d.loc ? `${d.loc.slice(1).join('.')}: ` : ''}{d.message}</li>
+              ))}
+            </ul>
+          )}
+        </Callout>
+      )}
 
       {failed.length > 0 ? (
         <CorrectionSlip items={failed} className="mb-3.5" />

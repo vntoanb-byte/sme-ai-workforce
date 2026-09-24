@@ -57,21 +57,21 @@ export const MOCK_EMPLOYEES: Employee[] = [
     job_description: 'Mỗi sáng 8 giờ, đọc các hoá đơn mới trong thư mục Scan trên máy chủ, nhập dữ liệu vào tệp SoHoaDon2026.xlsx, kiểm tra xem tổng tiền có khớp không, và gửi báo cáo tổng hợp cho chị Hương vào cuối ngày.',
     status: 'active', schedule_label: 'Mỗi ngày 08:00',
     next_run_at: at(1, 8, 0), last_run_at: at(0, 8, 0), last_run_status: 'RUNNING',
-    runs_30d: 30, created_at: at(-45, 10, 12),
+    runs_30d: 30, created_at: at(-45, 10, 12), workflow_id: 11,
   },
   {
     id: 2, name: 'Báo cáo cuối ngày',
     job_description: 'Cuối mỗi ngày lúc 17h30, tổng hợp toàn bộ hoá đơn đã xử lý trong ngày, lập báo cáo Excel và PDF rồi gửi cho quản lý.',
     status: 'active', schedule_label: 'Mỗi ngày 17:30',
     next_run_at: at(0, 17, 30), last_run_at: at(-1, 17, 30), last_run_status: 'SUCCEEDED',
-    runs_30d: 29, created_at: at(-40, 14, 5),
+    runs_30d: 29, created_at: at(-40, 14, 5), workflow_id: 12,
   },
   {
     id: 3, name: 'Đối chiếu công nợ',
     job_description: 'Mỗi thứ Hai lúc 9 giờ, đối chiếu tệp SoHoaDon2026.xlsx với tệp CongNo.xlsx theo số hoá đơn và liệt kê các dòng lệch.',
     status: 'paused', schedule_label: 'Thứ Hai 09:00',
     next_run_at: null, last_run_at: at(-3, 9, 0), last_run_status: 'FAILED',
-    runs_30d: 4, created_at: at(-30, 9, 40),
+    runs_30d: 4, created_at: at(-30, 9, 40), workflow_id: 13,
   },
 ]
 
