@@ -1,61 +1,67 @@
 """
 Điểm khởi động ứng dụng FastAPI
 
-Tạo đối tượng FastAPI, gắn middleware, đăng ký bộ xử lý lỗi, include router
-v1, phục vụ file tĩnh của giao diện React đã build, và khởi động bộ lập lịch.
+Tạo đối tượng FastAPI, gắn middleware (CORS, trace_id), đăng ký bộ xử lý lỗi
+thống nhất {error:{code,message,details,trace_id}}, include router /api/v1,
+phục vụ bản build giao diện React (STATIC_DIR) và — khi khởi động — nâng cấp
+lược đồ bằng Alembic rồi nạp dữ liệu gốc (db/init_db.py).
 
-TRẠNG THÁI (2026-08-29, TASK-006/007): thêm CORS (settings.CORS_ORIGINS), mount
-router /api/v1 (hiện chỉ có documents — 8 router còn lại vẫn là stub), và sự
-kiện startup TẠM THỜI tự tạo bảng qua Base.metadata.create_all() (xem NOTE ở
-sự kiện startup bên dưới — KHÔNG phải Alembic thật). Vẫn CHƯA làm (file phụ
-thuộc vẫn stub, làm ở task sau):
-  - Exception handler cho AppError/RequestValidationError — core/errors.py stub.
-  - Middleware trace_id, mount StaticFiles('frontend/dist').
-  - Alembic migration thật + seed dữ liệu + khởi động scheduler — workers/scheduler.py stub.
+Bộ lập lịch KHÔNG chạy trong tiến trình API (uvicorn có thể chạy nhiều tiến
+trình → lịch bị kích hoạt trùng); nó chạy trong tiến trình worker
+(`python -m app.workers.worker`).
 """
 
-from __future__ import annotations  # noqa: I001
+from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from sqlalchemy import text
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
-# PHẢI import app.db.base TRƯỚC app.api.v1: nạp trọn chuỗi model qua
-# db/base.py để tránh import vòng vỡ giữa chừng khi router (vd.
-# app/api/v1/documents.py) import trực tiếp 1 model cụ thể trước khi
-# app.db.base kịp nạp xong toàn bộ 21 bảng (phát hiện thật khi chạy
-# `uvicorn app.main:app` — pytest không lộ vì tests/conftest.py tình cờ import
-# app.db.base trước app.main). Thứ tự dòng dưới đây CỐ Ý không theo isort.
-from app.db.base import Base
 from app.api.v1 import api_router
 from app.core.config import settings
-from app.db.session import SessionLocal, engine
+from app.core.errors import (
+    AppError,
+    app_error_handler,
+    http_error_handler,
+    unhandled_error_handler,
+    validation_error_handler,
+)
+from app.core.logging import bind_context, clear_context, new_trace_id, setup_logging
+from app.db import init_db
+from app.db.session import SessionLocal
+
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Tự tạo bảng nếu DB rỗng — TẠM THỜI, KHÔNG PHẢI Alembic thật.
+    """Nâng cấp lược đồ (alembic upgrade head) + seed dữ liệu gốc.
 
-    Phát hiện thật (TASK-007): DB mới (file .db chưa tồn tại hoặc rỗng) không
-    có bảng nào — mọi request chạm DB lỗi `no such table`. Trước giờ chỉ chạy
-    được vì ai đó (hoặc chính Claude khi verify TASK-005b) đã tự gọi
-    `Base.metadata.create_all()` một lần thủ công trên `data/app.db` sẵn có.
-    `create_all()` CHỈ tạo bảng CHƯA có, không đụng bảng đã tồn tại — an toàn
-    gọi lại mỗi lần khởi động, nhưng đây KHÔNG thay thế Alembic migration thật
-    (không xử lý được thay đổi cột trên bảng đã tồn tại — theo đúng quy tắc
-    kiến trúc "không sửa lược đồ tại chỗ"). Xoá khi có Alembic +
-    `alembic upgrade head` thật ở bước khởi động.
+    Thay cho Base.metadata.create_all() tạm thời trước đây: DB cũ tạo bằng
+    create_all được stamp đúng phiên bản rồi nâng cấp (xem init_db.upgrade_db).
     """
-    Base.metadata.create_all(engine)
+    setup_logging()
+    Path(settings.STORAGE_PATH).mkdir(parents=True, exist_ok=True)
+    Path(settings.WATCH_PATH).mkdir(parents=True, exist_ok=True)
+    init_db.upgrade_db()
+    with SessionLocal() as db:
+        init_db.seed(db)
+        db.commit()
     yield
 
 
 app = FastAPI(
-    title="SME AI Workforce API", openapi_url="/api/v1/openapi.json", lifespan=_lifespan
+    title="SME AI Workforce API",
+    version="1.0.0",
+    openapi_url="/api/v1/openapi.json",
+    docs_url="/api/v1/docs",
+    lifespan=_lifespan,
 )
 
 app.add_middleware(
@@ -65,6 +71,24 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def _trace_id(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    trace_id = request.headers.get("x-request-id") or new_trace_id()
+    clear_context()
+    bind_context(trace_id=trace_id[:64])
+    response = await call_next(request)
+    response.headers["X-Trace-Id"] = trace_id[:64]
+    return response
+
+
+app.add_exception_handler(AppError, app_error_handler)
+app.add_exception_handler(StarletteHTTPException, http_error_handler)
+app.add_exception_handler(RequestValidationError, validation_error_handler)
+app.add_exception_handler(Exception, unhandled_error_handler)
 
 app.include_router(api_router, prefix="/api/v1")
 
@@ -105,3 +129,19 @@ def health() -> dict:
 
     overall_ok = all(c["ok"] for c in checks.values())
     return {"ok": overall_ok, "checks": checks}
+
+
+# ─── Giao diện React đã build (Dockerfile chép vào STATIC_DIR) ───
+_static = Path(settings.STATIC_DIR).resolve()
+if (_static / "index.html").is_file():
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa(full_path: str) -> FileResponse:
+        """Tệp tĩnh có thật thì trả tệp; còn lại trả index.html (định tuyến phía
+        trình duyệt). Không bao giờ phục vụ tệp nằm ngoài STATIC_DIR."""
+        if full_path.startswith("api/"):
+            raise StarletteHTTPException(status_code=404, detail="Không tìm thấy điểm cuối.")
+        candidate = (_static / full_path).resolve()
+        if full_path and candidate.is_file() and _static in candidate.parents:
+            return FileResponse(candidate)
+        return FileResponse(_static / "index.html")

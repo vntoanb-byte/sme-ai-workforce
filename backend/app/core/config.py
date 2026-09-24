@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     JOB_LEASE_SECONDS: int = 900
     JOB_POLL_INTERVAL_SEC: int = 2
     WATCH_PATH: str = "./data/scan"
+    # Công cụ trong workflow CHỈ được đọc tệp nằm dưới WATCH_PATH hoặc các thư mục
+    # liệt kê ở đây (chặn cấu hình quy trình trỏ ra /etc, thư mục người dùng...).
+    FS_ALLOWED_ROOTS: list[str] = []
     TIMEZONE: str = "Asia/Ho_Chi_Minh"
 
     # ─── Xử lý ảnh ───
@@ -52,6 +55,17 @@ class Settings(BaseSettings):
     JWT_REFRESH_TTL_DAYS: int = 7
     CREDENTIAL_ENC_KEY: str = ""
     MAX_UPLOAD_MB: int = 20
+    # Cookie chỉ gửi qua HTTPS. Để False khi chạy http://localhost; BẮT BUỘC đặt
+    # True khi triển khai sau HTTPS.
+    COOKIE_SECURE: bool = False
+
+    # ─── Giao diện và báo cáo ───
+    # Thư mục chứa bản build của frontend (Dockerfile chép vào ./static). Không
+    # tồn tại thì backend chỉ phục vụ API.
+    STATIC_DIR: str = "./static"
+    # Phông TTF có dấu tiếng Việt cho báo cáo PDF. Rỗng = tự dò các đường dẫn
+    # phổ biến (DejaVuSans...), không thấy thì dùng Helvetica (mất dấu).
+    REPORT_FONT_PATH: str = ""
 
     # ─── CORS ───
     # Danh sách origin được phép gọi API. Mặc định là dev server Vite; khi

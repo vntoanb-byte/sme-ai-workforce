@@ -3,7 +3,15 @@
 
 Nạp tệp, liệt kê chứng từ theo trạng thái, xem chi tiết kết quả trích xuất và
 tải tệp gốc. Hàng đợi chờ xác nhận chính là danh sách này với bộ lọc
-status=needs_review (xem note TASK-006 trong IMPLEMENTATION_PLAN.md).
+status=needs_review (ADR-003).
+
+  POST  /documents/presign     — chống trùng sớm theo sha256
+  POST  /documents             — nạp tệp, trích xuất + QC đồng bộ
+  GET   /documents             — lọc status, from/to (ngày lập), q (số HĐ/đơn vị bán)
+  GET   /documents/{id}        — chi tiết + QC
+  PATCH /documents/{id}        — lưu bản người dùng đã sửa/xác nhận ({data, note})
+  GET   /documents/{id}/file   — tệp gốc (chấp nhận cookie, cho thẻ <img>)
+Mọi điểm cuối yêu cầu đăng nhập (api/deps.py).
 """
 
 from __future__ import annotations
@@ -15,21 +23,19 @@ from typing import Annotated, Any, BinaryIO
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, get_llm, get_storage
+from app.api.deps import CurrentUser, Queue, get_db, get_llm, get_storage
 from app.core.config import settings
 from app.models.artifact import Document
 from app.models.extraction import Extraction, QCResult
 from app.ports.llm import LLMProvider
 from app.ports.storage import ArtifactRef, FileStorage
+from app.schemas.common import iso_utc
+from app.schemas.document import ExtractionPatch
 from app.schemas.invoice import InvoiceExtraction
-from app.services import document_service
-
-# TODO SECURITY (TASK-006): chưa bảo vệ các endpoint bằng auth/JWT — cần
-# models/user.py + JWT (việc riêng, chưa nằm trong phạm vi task). PHẢI thêm
-# xác thực + phân quyền trước khi deploy thật, đừng coi đây là bản vĩnh viễn.
+from app.services import document_service, review_service
 
 router = APIRouter()
 
@@ -90,7 +96,7 @@ def _document_row(
         "seller_name": extraction.seller_name if extraction else None,
         "total": float(extraction.total) if extraction and extraction.total is not None else None,
         "qc_failed": qc_failed,
-        "created_at": document.created_at.isoformat(),
+        "created_at": iso_utc(document.created_at),
     }
 
 
@@ -189,6 +195,7 @@ def _file_chunks(fileobj: BinaryIO):
 def presign(
     body: PresignRequest,
     storage: Annotated[FileStorage, Depends(get_storage)],
+    _user: CurrentUser,
 ) -> dict[str, bool]:
     """Kiểm tra đã có tệp cùng sha256 trong kho hay chưa (chống trùng sớm).
 
@@ -204,6 +211,7 @@ def upload_document(
     db: Annotated[Session, Depends(get_db)],
     llm: Annotated[LLMProvider, Depends(get_llm)],
     storage: Annotated[FileStorage, Depends(get_storage)],
+    user: CurrentUser,
 ) -> dict[str, Any]:
     """Nạp file (multipart), trích xuất bằng LLM + QC, trả chi tiết chứng từ.
 
@@ -216,7 +224,8 @@ def upload_document(
     filename = file.filename or "unknown"
     content_type = file.content_type
     document = document_service.ingest(
-        db, storage, llm, file_bytes, filename, content_type
+        db, storage, document_service.RecordingLLM(llm, db), file_bytes, filename, content_type,
+        uploaded_by=user.id,
     )
     db.commit()
     # Sau commit vẫn cần đọc lại quan hệ (session dùng expire_on_commit=False,
@@ -229,7 +238,9 @@ def upload_document(
 @router.get("")
 def list_documents(
     db: Annotated[Session, Depends(get_db)],
+    _user: CurrentUser,
     status_filter: Annotated[str | None, Query(alias="status")] = None,
+    q: Annotated[str | None, Query(max_length=100)] = None,
     from_date: Annotated[date | None, Query(alias="from")] = None,
     to_date: Annotated[date | None, Query(alias="to")] = None,
     limit: int = 20,
@@ -285,6 +296,15 @@ def list_documents(
         stmt = stmt.where(latest.c.issue_date >= from_date)
     if to_date is not None:
         stmt = stmt.where(latest.c.issue_date <= to_date)
+    if q and q.strip():
+        pattern = f"%{q.strip()}%"
+        stmt = stmt.where(
+            or_(
+                latest.c.invoice_no.ilike(pattern),
+                latest.c.seller_name.ilike(pattern),
+                Document.filename.ilike(pattern),
+            )
+        )
 
     page_size = max(limit, 1)
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
@@ -310,7 +330,7 @@ def list_documents(
                 "seller_name": row.seller_name,
                 "total": float(row.total) if row.total is not None else None,
                 "qc_failed": row.qc_failed or 0,
-                "created_at": document.created_at.isoformat(),
+                "created_at": iso_utc(document.created_at),
             }
         )
     return {
@@ -325,6 +345,7 @@ def list_documents(
 def get_document(
     document_id: int,
     db: Annotated[Session, Depends(get_db)],
+    _user: CurrentUser,
 ) -> dict[str, Any]:
     """Chi tiết một chứng từ: dữ liệu trích xuất mới nhất + toàn bộ qc_results."""
     document = db.get(Document, document_id)
@@ -337,11 +358,33 @@ def get_document(
     return _document_detail(document, extraction)
 
 
+@router.patch("/{document_id}")
+def patch_document(
+    document_id: int,
+    body: ExtractionPatch,
+    db: Annotated[Session, Depends(get_db)],
+    queue: Queue,
+    user: CurrentUser,
+) -> dict[str, Any]:
+    """Lưu bản người dùng đã kiểm tra: không đổi dữ liệu = xác nhận (approve),
+    có sửa = tạo extraction mới (correct). Ghi human_reviews + audit_logs trước/
+    sau; nếu là chứng từ cuối cùng đang chờ của một lần chạy thì lần chạy được
+    đưa lại hàng đợi (xem services/review_service.py)."""
+    document = review_service.get_document(db, document_id)
+    review_service.resolve(
+        db, queue, document, "correct", user,
+        data=body.data, note=body.note, allow_statuses=("needs_review", "ok"),
+    )
+    db.commit()
+    return _document_detail(document, _latest_extraction(db, document_id))
+
+
 @router.get("/{document_id}/file")
 def get_document_file(
     document_id: int,
     db: Annotated[Session, Depends(get_db)],
     storage: Annotated[FileStorage, Depends(get_storage)],
+    _user: CurrentUser,
 ) -> StreamingResponse:
     """Trả về tệp gốc (dùng cho khung xem ảnh ở frontend)."""
     document = db.get(Document, document_id)

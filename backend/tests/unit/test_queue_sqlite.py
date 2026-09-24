@@ -281,3 +281,31 @@ def test_reap_expired_only_reclaims_overdue_leases(engine, queue):
     assert queue.reap_expired() == 1
     assert _row(engine, job_a)["status"] == "pending"
     assert _row(engine, job_b)["status"] == "claimed"
+
+
+def test_extend_lease_only_for_owner(engine, queue):
+    job_id = _enqueue(queue, engine)
+    job = queue.claim("worker-a", lease_seconds=1)
+    assert job is not None
+    before = _row(engine, job_id)["lease_until"]
+    assert queue.extend_lease(job_id, "worker-a", lease_seconds=600) is True
+    assert _row(engine, job_id)["lease_until"] > before
+    assert queue.extend_lease(job_id, "worker-b", lease_seconds=600) is False
+
+
+def test_fail_without_retry_goes_straight_to_failed(engine, queue):
+    job_id = _enqueue(queue, engine, max_attempts=5)
+    queue.claim("worker-a")
+    queue.fail(job_id, "lỗi vĩnh viễn", retry=False)
+    row = _row(engine, job_id)
+    assert row["status"] == "failed"
+    assert row["last_error"] == "lỗi vĩnh viễn"
+
+
+def test_reap_marks_exhausted_job_failed(engine, queue):
+    job_id = _enqueue(queue, engine, max_attempts=1)
+    assert queue.claim("worker-a", lease_seconds=-10) is not None  # attempts = 1 = max
+    assert queue.reap_expired() == 1
+    row = _row(engine, job_id)
+    assert row["status"] == "failed"
+    assert "hết số lần thử" in row["last_error"]

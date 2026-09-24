@@ -69,15 +69,21 @@ class JobQueue(Protocol):
         """Đánh dấu job đã xử lý xong. Tự quản lý transaction riêng."""
         ...
 
-    def fail(self, job_id: int, error: str) -> None:
-        """Đánh dấu job lỗi; thử lại sau backoff hoặc chuyển 'failed' nếu hết lượt.
+    def extend_lease(self, job_id: int, worker_id: str, *, lease_seconds: int = 300) -> bool:
+        """Gia hạn lease (heartbeat) cho job đang giữ; False nếu đã mất quyền giữ."""
+        ...
+
+    def fail(self, job_id: int, error: str, *, retry: bool = True) -> None:
+        """Đánh dấu job lỗi; thử lại sau backoff hoặc chuyển 'failed' nếu hết lượt
+        hay retry=False (lỗi vĩnh viễn).
 
         Tự quản lý transaction riêng.
         """
         ...
 
     def reap_expired(self) -> int:
-        """Thu hồi job có lease_until đã quá hạn, trả về số lượng đã thu hồi.
+        """Thu hồi job có lease_until đã quá hạn (hết lượt → 'failed'), trả về số
+        lượng đã thu hồi.
 
         Tự quản lý transaction riêng.
         """

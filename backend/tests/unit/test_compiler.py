@@ -299,3 +299,22 @@ def test_compile_returns_compile_2_when_structure_always_invalid():
 
 def test_prompt_version_is_set():
     assert isinstance(PROMPT_VERSION, str) and bool(PROMPT_VERSION)
+
+def test_classify_prompt_lists_all_templates_with_examples():
+    llm = FakeLLMProvider([_llm_result({"template_code": "excel_clean"})])
+    classify_intent("Gộp các file Excel", llm)
+    system = llm.messages_list[0][0]["content"]
+    for code in ("invoice_to_excel", "invoice_report", "excel_clean", "excel_reconcile",
+                 "doc_classify"):
+        assert code in system
+    assert "ví dụ" in system
+
+
+def test_extract_prompt_contains_template_skeleton_and_hints():
+    llm = FakeLLMProvider([_llm_result(VALID_SPEC_DICT)])
+    extract_params(
+        "Đọc hoá đơn", "invoice_to_excel", llm, hints={"thư mục quét": "/mnt/scan"}
+    )
+    system = llm.messages_list[0][0]["content"]
+    assert "fs.list_new_files" in system and "xlsx.append_rows" in system
+    assert "/mnt/scan" in system
