@@ -14,10 +14,11 @@ totals{subtotal, vat_rate, vat_amount, total}.
 from __future__ import annotations
 
 import calendar
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any, Callable, Iterable, Optional
+from typing import Any
 
 TOLERANCE = Decimal("1")  # 1 đồng — dung sai làm tròn khi so sánh tiền tệ
 
@@ -43,7 +44,7 @@ class QCResult:
     rule_code: str
     severity: str  # 'warning' | 'critical'
     passed: bool
-    field: Optional[str]
+    field: str | None
     message: str
 
 
@@ -58,10 +59,10 @@ def _get(data: Any, path: str) -> Any:
 
 def _line_items(data: Any) -> list[Any]:
     items = _get(data, "line_items")
-    return list(items) if isinstance(items, (list, tuple)) else []
+    return list(items) if isinstance(items, list | tuple) else []
 
 
-def _to_decimal(value: Any) -> Optional[Decimal]:
+def _to_decimal(value: Any) -> Decimal | None:
     if value is None or value == "":
         return None
     if isinstance(value, Decimal):
@@ -72,7 +73,7 @@ def _to_decimal(value: Any) -> Optional[Decimal]:
         return None
 
 
-def _to_date(value: Any) -> Optional[date]:
+def _to_date(value: Any) -> date | None:
     if value is None:
         return None
     if isinstance(value, datetime):
@@ -113,9 +114,9 @@ def _subtract_months(d: date, months: int) -> date:
     return date(year, month, day)
 
 
-def _tax_code_error(code: Optional[str]) -> Optional[str]:
+def _tax_code_error(code: str | None) -> str | None:
     """Trả về lý do không hợp lệ, hoặc None nếu mã số thuế hợp lệ."""
-    if _is_blank(code):
+    if code is None or _is_blank(code):
         return "còn trống"
     cleaned = code.replace("-", "").replace(" ", "")
     if not cleaned.isdigit():
@@ -123,7 +124,7 @@ def _tax_code_error(code: Optional[str]) -> Optional[str]:
     if len(cleaned) not in (10, 13):
         return "phải gồm 10 hoặc 13 chữ số"
     digits = [int(c) for c in cleaned[:10]]
-    weighted = sum(d * w for d, w in zip(digits[:9], TAX_CODE_WEIGHTS))
+    weighted = sum(d * w for d, w in zip(digits[:9], TAX_CODE_WEIGHTS, strict=False))
     check_digit = (10 - weighted % 11) % 11
     if check_digit == 10:
         check_digit = 0
@@ -138,7 +139,9 @@ def qc_01_line_items_match_subtotal(data: Any, context: dict[str, Any]) -> QCRes
     line_items = _line_items(data)
     subtotal = _to_decimal(_get(data, "totals.subtotal"))
     if subtotal is None:
-        return QCResult(rule_code, severity, False, "totals.subtotal", "Không đọc được tiền trước thuế.")
+        return QCResult(
+            rule_code, severity, False, "totals.subtotal", "Không đọc được tiền trước thuế."
+        )
     line_sum = Decimal("0")
     for item in line_items:
         line_sum += _to_decimal(_get(item, "amount")) or Decimal("0")
@@ -159,13 +162,19 @@ def qc_02_subtotal_plus_vat_equals_total(data: Any, context: dict[str, Any]) -> 
     vat_amount = _to_decimal(_get(data, "totals.vat_amount"))
     total = _to_decimal(_get(data, "totals.total"))
     if subtotal is None or vat_amount is None or total is None:
-        return QCResult(rule_code, severity, False, "totals.total", "Không đọc được đủ tiền trước thuế, tiền thuế và tổng thanh toán.")
+        return QCResult(
+            rule_code, severity, False, "totals.total",
+            "Không đọc được đủ tiền trước thuế, tiền thuế và tổng thanh toán.",
+        )
     expected = subtotal + vat_amount
     diff = abs(expected - total)
     if diff <= TOLERANCE:
-        return QCResult(rule_code, severity, True, None, "Tiền trước thuế cộng thuế khớp tổng thanh toán.")
+        return QCResult(
+            rule_code, severity, True, None, "Tiền trước thuế cộng thuế khớp tổng thanh toán."
+        )
     message = (
-        f"{_format_money(subtotal)} + {_format_money(vat_amount)} = {_format_money(expected)}, nhưng đọc được "
+        f"{_format_money(subtotal)} + {_format_money(vat_amount)} = "
+        f"{_format_money(expected)}, nhưng đọc được "
         f"{_format_money(total)}. Chênh lệch {_format_money(diff)} đ."
     )
     return QCResult(rule_code, severity, False, "totals.total", message)
@@ -192,7 +201,10 @@ def qc_04_seller_tax_code_valid(data: Any, context: dict[str, Any]) -> QCResult:
     error = _tax_code_error(tax_code)
     if error is None:
         return QCResult(rule_code, severity, True, None, "Mã số thuế hợp lệ.")
-    return QCResult(rule_code, severity, False, "seller.tax_code", f"Mã số thuế bên bán không hợp lệ: {error}.")
+    return QCResult(
+        rule_code, severity, False, "seller.tax_code",
+        f"Mã số thuế bên bán không hợp lệ: {error}.",
+    )
 
 
 def qc_05_issue_date_reasonable(data: Any, context: dict[str, Any]) -> QCResult:
@@ -200,18 +212,22 @@ def qc_05_issue_date_reasonable(data: Any, context: dict[str, Any]) -> QCResult:
     severity = "warning"
     issue_date = _to_date(_get(data, "issue_date"))
     if issue_date is None:
-        return QCResult(rule_code, severity, False, "issue_date", "Không đọc được ngày lập hoá đơn.")
+        return QCResult(
+            rule_code, severity, False, "issue_date", "Không đọc được ngày lập hoá đơn."
+        )
     today = date.today()
     if issue_date > today:
         return QCResult(
             rule_code, severity, False, "issue_date",
-            f"Ngày lập {issue_date.isoformat()} nằm trong tương lai (hôm nay là {today.isoformat()}).",
+            f"Ngày lập {issue_date.isoformat()} nằm trong tương lai "
+            f"(hôm nay là {today.isoformat()}).",
         )
     cutoff = _subtract_months(today, MAX_INVOICE_AGE_MONTHS)
     if issue_date < cutoff:
         return QCResult(
             rule_code, severity, False, "issue_date",
-            f"Ngày lập {issue_date.isoformat()} đã quá {MAX_INVOICE_AGE_MONTHS} tháng (giới hạn từ {cutoff.isoformat()}).",
+            f"Ngày lập {issue_date.isoformat()} đã quá {MAX_INVOICE_AGE_MONTHS} tháng "
+            f"(giới hạn từ {cutoff.isoformat()}).",
         )
     return QCResult(rule_code, severity, True, None, "Ngày lập nằm trong khoảng hợp lý.")
 
@@ -224,7 +240,10 @@ def qc_06_invoice_no_not_duplicate(data: Any, context: dict[str, Any]) -> QCResu
         return QCResult(rule_code, severity, False, "invoice_no", "Không đọc được số hoá đơn.")
     existing: frozenset[str] = context.get("existing_invoice_numbers", frozenset())
     if invoice_no in existing:
-        return QCResult(rule_code, severity, False, "invoice_no", f"Số hoá đơn '{invoice_no}' đã tồn tại trong hệ thống.")
+        return QCResult(
+            rule_code, severity, False, "invoice_no",
+            f"Số hoá đơn '{invoice_no}' đã tồn tại trong hệ thống.",
+        )
     return QCResult(rule_code, severity, True, None, "Số hoá đơn chưa trùng với bản ghi nào khác.")
 
 
@@ -247,9 +266,11 @@ def qc_08_line_amount_matches_quantity_times_price(data: Any, context: dict[str,
     severity = "critical"
     line_items = _line_items(data)
     if not line_items:
-        return QCResult(rule_code, severity, False, "line_items", "Không có dòng hàng nào để kiểm tra.")
+        return QCResult(
+            rule_code, severity, False, "line_items", "Không có dòng hàng nào để kiểm tra."
+        )
     mismatches: list[str] = []
-    first_bad_field: Optional[str] = None
+    first_bad_field: str | None = None
     for idx, item in enumerate(line_items):
         quantity = _to_decimal(_get(item, "quantity"))
         unit_price = _to_decimal(_get(item, "unit_price"))
@@ -262,13 +283,15 @@ def qc_08_line_amount_matches_quantity_times_price(data: Any, context: dict[str,
         expected = quantity * unit_price
         if abs(expected - amount) > TOLERANCE:
             mismatches.append(
-                f"dòng {line_no}: {quantity} × {_format_money(unit_price)} = {_format_money(expected)}, "
+                f"dòng {line_no}: {quantity} × {_format_money(unit_price)} = "
+                f"{_format_money(expected)}, "
                 f"nhưng thành tiền ghi {_format_money(amount)}"
             )
             first_bad_field = first_bad_field or f"line_items.{idx}.amount"
     if not mismatches:
         word = "cả" if len(line_items) > 1 else ""
-        return QCResult(rule_code, severity, True, None, f"Đơn giá × số lượng khớp thành tiền ở {word} {len(line_items)} dòng.".replace("  ", " "))
+        message = f"Đơn giá × số lượng khớp thành tiền ở {word} {len(line_items)} dòng."
+        return QCResult(rule_code, severity, True, None, message.replace("  ", " "))
     return QCResult(rule_code, severity, False, first_bad_field, "; ".join(mismatches) + ".")
 
 
@@ -285,9 +308,11 @@ RULES: list[Callable[[Any, dict[str, Any]], QCResult]] = [
 
 
 def run_qc(
-    data: Any, existing_invoice_numbers: Optional[Iterable[str]] = None
+    data: Any, existing_invoice_numbers: Iterable[str] | None = None
 ) -> tuple[list[QCResult], bool]:
-    context: dict[str, Any] = {"existing_invoice_numbers": frozenset(existing_invoice_numbers or ())}
+    context: dict[str, Any] = {
+        "existing_invoice_numbers": frozenset(existing_invoice_numbers or ())
+    }
     results = [rule(data, context) for rule in RULES]
     needs_review = any(r.severity == "critical" and not r.passed for r in results)
     return results, needs_review
