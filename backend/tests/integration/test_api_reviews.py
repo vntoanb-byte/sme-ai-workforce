@@ -152,3 +152,14 @@ def test_each_model_call_logged_once(client: TestClient, fake_llm: FakeLLM, db: 
 
     _upload(client, fake_llm, invoice_payload("0000051"), 1)
     assert db.scalar(select(func.count(LlmCall.id))) == len(fake_llm.calls) == 1
+
+
+def test_file_download_header_is_encoded(client: TestClient) -> None:
+    doc = client.post(
+        "/api/v1/documents",
+        files={"file": ('hoá "đơn".png', _png(9), "image/png")},
+    ).json()
+    resp = client.get(f"/api/v1/documents/{doc['id']}/file")
+    assert resp.status_code == 200
+    assert resp.content == _png(9)
+    assert resp.headers["content-disposition"].startswith("inline; filename*=UTF-8''ho%C3%A1")

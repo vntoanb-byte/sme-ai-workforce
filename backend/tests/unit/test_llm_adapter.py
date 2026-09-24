@@ -97,3 +97,24 @@ def test_circuit_breaker_opens_after_five_failures_and_resets(
         base_url="http://model.test/v1", transport=httpx.MockTransport(lambda r: _ok("OK"))
     )
     assert llm.complete([{"role": "user", "content": "x"}]).content == "OK"
+
+
+def test_no_authorization_header_without_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "LLM_API_KEY", "")
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["auth"] = request.headers.get("authorization")
+        return _ok("OK")
+
+    llm = OpenAICompatibleLLM(base_url="http://model.test/v1", model="m")
+    assert "authorization" not in llm._client.headers
+    llm._client = httpx.Client(
+        base_url="http://model.test/v1",
+        headers=llm._client.headers,
+        transport=httpx.MockTransport(handler),
+    )
+    assert llm.complete([{"role": "user", "content": "x"}]).content == "OK"
+    assert seen["auth"] is None

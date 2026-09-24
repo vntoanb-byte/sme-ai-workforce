@@ -37,11 +37,13 @@ REFRESH = "refresh"
 
 _hasher = PasswordHasher()
 _ephemeral_secret: str | None = None
+# Giá trị mẫu trong .env.example — công khai trong repo nên KHÔNG được dùng làm khoá.
+_PLACEHOLDER_SECRETS = {"SINH-NGAU-NHIEN-32-BYTE"}
 
 
 def _jwt_secret() -> str:
     global _ephemeral_secret
-    if settings.JWT_SECRET:
+    if settings.JWT_SECRET and settings.JWT_SECRET not in _PLACEHOLDER_SECRETS:
         return settings.JWT_SECRET
     if _ephemeral_secret is None:
         _ephemeral_secret = secrets.token_urlsafe(48)

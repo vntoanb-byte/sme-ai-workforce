@@ -13,9 +13,10 @@ RUN npm run build
 # Stage 2: backend
 FROM python:3.11-slim
 
-# Thư viện hệ thống cho opencv và pypdfium2
+# Thư viện hệ thống cho opencv và pypdfium2; fonts-dejavu-core: phông có dấu tiếng
+# Việt cho báo cáo PDF (ReportLab) — thiếu phông thì PDF mất dấu.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libgl1 libglib2.0-0 curl \
+        libgl1 libglib2.0-0 curl fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -32,4 +33,6 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
     CMD curl -f http://localhost:8080/health || exit 1
 
+# Tiến trình API (tự chạy migration + seed khi khởi động). Tiến trình xử lý nền dùng
+# CÙNG ảnh này với lệnh `python -m app.workers.worker` (xem deploy/docker-compose.yml).
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]

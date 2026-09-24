@@ -34,9 +34,12 @@ class OpenAICompatibleLLM:
     ) -> None:
         self._model = model or settings.LLM_MODEL
         self._timeout = timeout or settings.LLM_TIMEOUT_SEC
+        key = api_key or settings.LLM_API_KEY
         self._client = httpx.Client(
             base_url=base_url or settings.LLM_BASE_URL,
-            headers={"Authorization": f"Bearer {api_key or settings.LLM_API_KEY}"},
+            # vLLM nội bộ thường không cần khoá: KHÔNG gửi "Bearer " rỗng (httpx từ
+            # chối giá trị header không hợp lệ — lỗi thật khi chạy container).
+            headers={"Authorization": f"Bearer {key}"} if key else {},
             timeout=self._timeout,
         )
         # Bộ ngắt mạch đơn giản, dùng bộ nhớ tiến trình (đủ cho worker đơn

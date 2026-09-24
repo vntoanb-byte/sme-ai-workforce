@@ -56,16 +56,17 @@ USERS = (
 )
 
 
-def _users(db: Session, password: str) -> dict[str, User]:
-    out = {}
+def _users(db: Session, password: str) -> list[str]:
+    """Tạo tài khoản demo còn thiếu; trả về tên các tài khoản VỪA tạo (tài khoản có
+    sẵn — vd. admin tạo từ FIRST_ADMIN_* — giữ nguyên mật khẩu cũ)."""
+    created = []
     for username, name, email, roles in USERS:
-        user = db.scalar(select(User).where(User.username == username))
-        if user is None:
-            user = auth_service.create_user(
+        if db.scalar(select(User).where(User.username == username)) is None:
+            auth_service.create_user(
                 db, username=username, full_name=name, email=email, password=password, roles=roles
             )
-        out[username] = user
-    return out
+            created.append(username)
+    return created
 
 
 def _employee(db: Session, name: str, code: str, cron: str, desc: str, config: dict) -> AIEmployee:
@@ -163,7 +164,7 @@ def seed_demo(db: Session, storage: FileStorage, password: str, runs: int = 24) 
     if db.scalar(select(AIEmployee).where(AIEmployee.name == DEMO_EMPLOYEE)):
         return "Đã có dữ liệu demo — bỏ qua."
     rng = random.Random(7)
-    _users(db, password)
+    created_users = _users(db, password)
     invoices = _employee(
         db,
         DEMO_EMPLOYEE,
@@ -218,7 +219,8 @@ def seed_demo(db: Session, storage: FileStorage, password: str, runs: int = 24) 
     db.flush()
     pending = sum(1 for d in broken if d.status == "needs_review")
     return (
-        f"Đã tạo 3 người dùng, 2 nhân viên AI, {runs + 1} lần chạy, "
+        f"Đã tạo tài khoản [{', '.join(created_users) or 'không có tài khoản mới'}] "
+        f"(mật khẩu: {password}), 2 nhân viên AI, {runs + 1} lần chạy, "
         f"{pending} chứng từ chờ xác nhận."
     )
 
@@ -239,7 +241,6 @@ def main(argv: list[str] | None = None) -> None:
         message = seed_demo(db, LocalFileStorage(settings.STORAGE_PATH), args.password, args.runs)
         db.commit()
     print(message)
-    print("Tài khoản: ketoan / quanly / admin — mật khẩu:", args.password)
 
 
 if __name__ == "__main__":

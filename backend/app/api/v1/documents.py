@@ -19,6 +19,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 from typing import Annotated, Any, BinaryIO
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
@@ -404,5 +405,6 @@ def get_document_file(
     return StreamingResponse(
         _file_chunks(fileobj),
         media_type=media_type,
-        headers={"Content-Disposition": f'inline; filename="{document.filename}"'},
+        # Tên tệp do người dùng đặt → mã hoá RFC 5987, không chèn thô vào header.
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(document.filename)}"},
     )

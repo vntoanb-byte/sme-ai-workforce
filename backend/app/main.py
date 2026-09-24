@@ -120,7 +120,9 @@ def health() -> dict:
         # check. Test gọi model thật xem scripts/test_llm.py.
         resp = httpx.get(
             f"{settings.LLM_BASE_URL.rstrip('/')}/models",
-            headers={"Authorization": f"Bearer {settings.LLM_API_KEY}"},
+            headers=(
+                {"Authorization": f"Bearer {settings.LLM_API_KEY}"} if settings.LLM_API_KEY else {}
+            ),
             timeout=5.0,
         )
         checks["llm"] = {"ok": resp.status_code < 400, "status_code": resp.status_code}
