@@ -7,7 +7,7 @@
  * thật chỉ là đổi một biến môi trường.
  */
 import type {
-  CompileResult, DocumentDetail, DocumentRow, Employee, Page, ReportPreview,
+  CompileResult, DocumentDetail, DocumentRow, Employee, LlmConfig, Page, ReportPreview,
   RunDetail, RunRow, TokenPair, Workflow,
 } from '../types'
 import {
@@ -22,6 +22,12 @@ const docs: DocumentRow[] = [...MOCK_DOCS]
 const employees: Employee[] = [...MOCK_EMPLOYEES]
 const edited = new Map<number, DocumentDetail>()
 const mockWorkflows = new Map<number, Workflow>()
+const mockLlm: LlmConfig = {
+  base_url: 'http://vllm:8000/v1',
+  model: 'Qwen3-VL-8B',
+  api_key_set: false,
+  sources: { base_url: 'env', model: 'env', api_key: 'env' },
+}
 
 function parse(path: string): { pathname: string; q: URLSearchParams } {
   const [pathname, search = ''] = path.split('?')
@@ -61,7 +67,34 @@ export async function mockRequest<T>(method: string, path: string, body?: unknow
     return out(Object.values(MOCK_USERS).map((u) => u.user))
   }
   if (method === 'POST' && pathname === '/admin/llm/test') {
-    return out({ ok: true, model: 'Qwen3-VL-8B', base_url: 'http://vllm:8000/v1', latency_ms: 840, error: null })
+    const b = (body ?? {}) as { base_url?: string; model?: string }
+    return out({
+      ok: true, model: b.model || mockLlm.model, base_url: b.base_url || mockLlm.base_url, latency_ms: 840, error: null,
+    })
+  }
+  if (method === 'GET' && pathname === '/admin/llm/config') return out(mockLlm)
+  if (method === 'PUT' && pathname === '/admin/llm/config') {
+    const b = body as { base_url?: string; model?: string; api_key?: string }
+    if (b.base_url !== undefined) {
+      mockLlm.base_url = b.base_url || 'http://vllm:8000/v1'
+      mockLlm.sources.base_url = b.base_url ? 'settings' : 'env'
+    }
+    if (b.model !== undefined) {
+      mockLlm.model = b.model || 'Qwen3-VL-8B'
+      mockLlm.sources.model = b.model ? 'settings' : 'env'
+    }
+    if (b.api_key !== undefined) {
+      mockLlm.api_key_set = Boolean(b.api_key)
+      mockLlm.sources.api_key = b.api_key ? 'settings' : 'env'
+    }
+    return out(mockLlm)
+  }
+  if (method === 'POST' && pathname === '/admin/llm/models') {
+    const b = (body ?? {}) as { base_url?: string }
+    return out({
+      ok: true, base_url: b.base_url || mockLlm.base_url,
+      models: ['Qwen3-VL-8B', 'Qwen3-VL-4B', 'qwen/qwen3-vl-8b-instruct'], error: null,
+    })
   }
   if (method === 'POST' && pathname === '/reports/export') {
     return out({ artifact_id: 1, filename: 'BaoCao.xlsx', download_url: '/api/v1/reports/1/download' })

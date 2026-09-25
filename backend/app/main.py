@@ -37,6 +37,7 @@ from app.core.errors import (
 from app.core.logging import bind_context, clear_context, new_trace_id, setup_logging
 from app.db import init_db
 from app.db.session import SessionLocal
+from app.services import llm_config_service
 
 
 @asynccontextmanager
@@ -118,10 +119,13 @@ def health() -> dict:
         # Kiểm tra kết nối + xác thực tới máy chủ mô hình bằng GET /models —
         # KHÔNG gọi complete() ở đây để tránh tốn phí/độ trễ mỗi lần health
         # check. Test gọi model thật xem scripts/test_llm.py.
+        # Cấu hình đang có hiệu lực (trang Cài đặt, thiếu thì .env).
+        with SessionLocal() as db:
+            llm_config = llm_config_service.resolve(db)
         resp = httpx.get(
-            f"{settings.LLM_BASE_URL.rstrip('/')}/models",
+            f"{llm_config.base_url.rstrip('/')}/models",
             headers=(
-                {"Authorization": f"Bearer {settings.LLM_API_KEY}"} if settings.LLM_API_KEY else {}
+                {"Authorization": f"Bearer {llm_config.api_key}"} if llm_config.api_key else {}
             ),
             timeout=5.0,
         )

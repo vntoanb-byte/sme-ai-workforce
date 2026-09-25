@@ -4,6 +4,18 @@
 
 > **2026-08-28:** Owner đã gỡ VS Code/Cline khỏi máy. Từ đây Claude Code trực tiếp làm cả Architect **và** Implementer (không còn phối hợp qua khối "giao task cho Cline" nữa) — nhưng vẫn giữ nguyên kỷ luật tự review bằng bằng chứng thật (`scripts/verify`, Claim Gate) thay vì tự tuyên bố xong.
 
+## Task: TASK-009 — Gắn model/API khác qua trang Cài đặt (khoá API)
+
+**Status:** DONE (2026-09-25) — theo yêu cầu Owner "thêm chức năng thôi" (gắn API model khác + cài đặt khoá API).
+
+**Completed:**
+- `ports/llm.py`: `LLMConfig`. `adapters/llm_reloading.py`: `ReloadingLLM` — đọc cấu hình mỗi ≤ 10 giây, giữ client/bộ ngắt mạch khi không đổi, lỗi đọc cấu hình thì dùng tiếp cấu hình đang chạy. `OpenAICompatibleLLM.list_models()`.
+- `services/llm_config_service.py`: `llm.base_url`, `llm.model`, `secret.llm_api_key` (Fernet) ưu tiên hơn `.env`; chuỗi rỗng = quay về `.env`; kiểm tra URL; ghi `audit_logs` không chứa khoá.
+- API: `GET/PUT /admin/llm/config`, `POST /admin/llm/test` (nhận giá trị chưa lưu), `POST /admin/llm/models`. `api/deps.py`, worker, `/health` dùng cấu hình đang có hiệu lực.
+- Giao diện: `features/settings/LlmSettings.tsx` (tab *Mô hình AI*): nhà cung cấp mẫu, địa chỉ, model (lấy danh sách), khoá API, thử kết nối, lưu, dùng lại `.env`, cảnh báo địa chỉ ngoài mạng nội bộ.
+
+**Evidence:** 8 test mới (`tests/unit/test_llm_reloading.py`, `tests/integration/test_api_llm_config.py`); chạy thật API + worker + 2 máy chủ mô hình giả (A nội bộ, B bắt buộc khoá): đổi sang B trên Chromium (9/9 bước đạt), tải hoá đơn ở API và lần chạy ở worker đều gọi model B không khởi động lại, quay về `.env` → model A ngay, khoá trong CSDL đã mã hoá, không xuất hiện trong API/trang/nhật ký.
+
 ## Task: TASK-008 — Hoàn thiện toàn bộ hệ thống (API, worker, công cụ, nối giao diện, triển khai)
 
 **Status:** DONE (2026-09-24) — Claude Code làm trực tiếp theo yêu cầu Owner "hoàn thành luôn, viết API, test đầy đủ, báo cáo". Chưa đo độ chính xác trên model thật (không có GPU trong môi trường làm việc) — xem "Còn lại".

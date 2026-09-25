@@ -42,7 +42,7 @@ docs/             ARCHITECTURE.md, DECISIONS.md (ADR-001..008), SCREENS.md
 | `tools/*` | ✅ | chỉ đọc tệp dưới WATCH_PATH/FS_ALLOWED_ROOTS; không bao giờ ghi đè tệp gốc |
 | `agents/crew.py` | ✅ | Python thuần, không dùng thư viện CrewAI (ADR-004) |
 | `workers/*` | ✅ | lịch đọc lại từ bảng schedules mỗi phút (ADR-007) |
-| `api/v1/*` | ✅ | 38 điểm cuối, OpenAPI tại /api/v1/openapi.json |
+| `api/v1/*` | ✅ | 41 điểm cuối, OpenAPI tại /api/v1/openapi.json |
 | `frontend/` | ✅ | nối backend thật; `npm run dev` mặc định dữ liệu giả, bản build luôn gọi backend |
 
 ## Dependency

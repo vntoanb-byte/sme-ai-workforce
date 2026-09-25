@@ -22,7 +22,7 @@ from typing import Annotated
 from fastapi import Depends, Request
 from sqlalchemy.orm import Session
 
-from app.adapters.llm_openai_compatible import OpenAICompatibleLLM
+from app.adapters.llm_reloading import ReloadingLLM
 from app.adapters.queue_sqlite import SQLiteJobQueue
 from app.adapters.storage_local import LocalFileStorage
 from app.core import security
@@ -34,7 +34,7 @@ from app.models.user import User
 from app.ports.llm import LLMProvider
 from app.ports.queue import JobQueue
 from app.ports.storage import FileStorage
-from app.services import auth_service
+from app.services import auth_service, llm_config_service
 
 ACCESS_COOKIE = "access_token"
 REFRESH_COOKIE = "refresh_token"
@@ -52,15 +52,24 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def get_llm() -> LLMProvider:
-    """Trả về adapter LLM (OpenAICompatibleLLM) dựng từ settings.
+    """Trả về adapter LLM dùng chung cho toàn tiến trình.
 
-    Dùng 1 instance dùng chung cho toàn tiến trình để giữ nguyên trạng thái bộ
-    ngắt mạch (circuit breaker) của adapter giữa các request.
+    ReloadingLLM đọc cấu hình mô hình từ bảng settings (trang Cài đặt), thiếu thì
+    lấy biến môi trường; giữ nguyên client — và trạng thái bộ ngắt mạch — khi
+    cấu hình không đổi.
     """
     global _llm_instance
     if _llm_instance is None:
-        _llm_instance = OpenAICompatibleLLM()
+        _llm_instance = ReloadingLLM(
+            llm_config_service.load, fallback=llm_config_service.env_config()
+        )
     return _llm_instance
+
+
+def reload_llm() -> None:
+    """Gọi sau khi quản trị viên lưu cấu hình mô hình — có hiệu lực ngay."""
+    if isinstance(_llm_instance, ReloadingLLM):
+        _llm_instance.invalidate()
 
 
 def get_storage() -> FileStorage:

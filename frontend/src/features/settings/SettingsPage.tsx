@@ -1,11 +1,11 @@
 /**
  * P-10 — Cấu hình (chỉ quản trị viên).
  *
- * Dùng khuôn DetailTabs: người dùng (từ /admin/users), kết nối mô hình (thử
- * kết nối thật qua /admin/llm/test), tình trạng hệ thống (từ /admin/metrics).
+ * Dùng khuôn DetailTabs: người dùng (từ /admin/users), mô hình AI (gắn máy chủ
+ * mô hình và khoá API — LlmSettings), tình trạng hệ thống (từ /admin/metrics).
  */
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { getMetrics, listUsers, testLlm } from '@/api/admin'
+import { useQuery } from '@tanstack/react-query'
+import { getMetrics, listUsers } from '@/api/admin'
 import type { RoleCode } from '@/api/types'
 import { STALE } from '@/lib/query'
 import { formatMoney } from '@/lib/format'
@@ -13,7 +13,8 @@ import { USE_MOCK } from '@/api/client'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { DetailTabs } from '@/components/shared/DetailTabs'
 import { ErrorState } from '@/components/shared/States'
-import { Badge, Button, Callout, Card, CardTitle, Skeleton } from '@/components/ui/primitives'
+import { Badge, Card, CardTitle, Skeleton } from '@/components/ui/primitives'
+import { LlmSettings } from './LlmSettings'
 
 const ROLE_LABEL: Record<RoleCode, string> = {
   USER: 'Kế toán viên',
@@ -24,9 +25,6 @@ const ROLE_LABEL: Record<RoleCode, string> = {
 export function SettingsPage() {
   const m = useQuery({ queryKey: ['metrics'], queryFn: getMetrics, staleTime: STALE.runs })
   const users = useQuery({ queryKey: ['admin-users'], queryFn: listUsers, staleTime: STALE.list })
-  const llm = useMutation({ mutationFn: testLlm })
-
-  const llmState = llm.data ? (llm.data.ok ? 'ok' : 'down') : m.data?.llm_status
 
   return (
     <>
@@ -71,33 +69,8 @@ export function SettingsPage() {
             ),
           },
           {
-            key: 'llm', label: 'Kết nối mô hình',
-            element: (
-              <Card className="max-w-2xl p-4">
-                <CardTitle action={
-                  <Button size="sm" loading={llm.isPending} onClick={() => llm.mutate()}>Kiểm tra kết nối</Button>
-                }>
-                  Máy chủ mô hình
-                </CardTitle>
-                <Row label="Trạng thái" value={
-                  <Badge tone={llmState === 'ok' ? 'ok' : llmState === 'degraded' ? 'warn' : 'error'} dot>
-                    {llmState === 'ok' ? 'Hoạt động bình thường' : llmState === 'degraded' ? 'Chập chờn' : 'Không phản hồi'}
-                  </Badge>
-                } />
-                <Row label="Mô hình" value={<span className="font-mono">{llm.data?.model ?? '— (bấm Kiểm tra kết nối)'}</span>} />
-                <Row label="Điểm cuối" value={<span className="font-mono text-[11.5px]">{llm.data?.base_url ?? '—'}</span>} />
-                <Row label="Độ trễ lần thử" value={llm.data ? `${formatMoney(llm.data.latency_ms)} ms` : '—'} />
-                <Row label="Giới hạn ảnh" value="Cạnh dài 1280 px · tối đa 1.638.400 điểm ảnh" last />
-                {llm.data?.error && (
-                  <Callout tone="error" className="mt-3.5">{llm.data.error}</Callout>
-                )}
-                <Callout tone="brand" className="mt-3.5">
-                  Đổi mô hình chỉ cần sửa hai biến <span className="font-mono">LLM_BASE_URL</span> và{' '}
-                  <span className="font-mono">LLM_MODEL</span> trong tệp cấu hình rồi khởi động lại —
-                  không phải sửa mã nguồn.
-                </Callout>
-              </Card>
-            ),
+            key: 'llm', label: 'Mô hình AI',
+            element: <LlmSettings status={m.data?.llm_status} />,
           },
           {
             key: 'system', label: 'Hệ thống',

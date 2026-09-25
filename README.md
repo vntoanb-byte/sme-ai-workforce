@@ -18,7 +18,7 @@ cho **người xác nhận** trước khi đi tiếp. Chạy **100% nội bộ, 
 | Lớp | Công nghệ | Vai trò trong hệ thống |
 |---|---|---|
 | Giao diện | React 18, Vite 5, TypeScript, TailwindCSS, TanStack Query, React Router | 10 màn hình; token chỉ trong bộ nhớ; SSE xem nhật ký trực tiếp |
-| API | Python 3.11, FastAPI 0.115, Pydantic 2.9, uvicorn | 38 điểm cuối `/api/v1` + OpenAPI tại `/api/v1/docs` |
+| API | Python 3.11, FastAPI 0.115, Pydantic 2.9, uvicorn | 41 điểm cuối `/api/v1` + OpenAPI tại `/api/v1/docs` |
 | Dữ liệu | SQLite (chế độ WAL), SQLAlchemy 2.0, Alembic | 22 bảng; migration 0001 → 0002 |
 | Hàng đợi | Bảng `job_queue` trong SQLite (`BEGIN IMMEDIATE` + `rowcount`) | Không cần Redis/Celery (ADR-001) |
 | Lập lịch | APScheduler 3.10 (múi giờ Asia/Ho_Chi_Minh) | Cron, theo dõi thư mục, thu hồi việc treo |
@@ -269,6 +269,16 @@ API đóng qua Internet cho dữ liệu thật (vi phạm yêu cầu offline, xe
 
 ### 5.3. Đổi và đánh giá model — không sửa mã nguồn
 
+**Cách 1 — trên giao diện (quản trị viên):** *Cấu hình → Mô hình AI*. Chọn nhà cung cấp (vLLM nội
+bộ, Ollama, LM Studio, OpenRouter, OpenAI, Gemini hoặc tuỳ chỉnh), nhập địa chỉ, tên model, khoá API;
+**Lấy danh sách** để chọn model, **Thử kết nối** bằng giá trị đang nhập trước khi lưu, **Lưu cấu hình**
+là có hiệu lực ngay ở API và trong ≤ 10 giây ở worker — không khởi động lại. Khoá API mã hoá bằng
+`CREDENTIAL_ENC_KEY`, không bao giờ trả ra API. Địa chỉ ngoài mạng nội bộ hiện cảnh báo gửi dữ liệu ra
+ngoài. Điểm cuối: `GET/PUT /admin/llm/config`, `POST /admin/llm/test`, `POST /admin/llm/models`.
+Cấu hình trên giao diện ưu tiên hơn `.env`; **Dùng lại cấu hình trong .env** để quay về.
+
+**Cách 2 — tệp cấu hình:**
+
 ```bash
 # 1. Trỏ sang model mới (backend/.env hoặc biến môi trường của docker compose)
 LLM_BASE_URL=http://vllm:8000/v1
@@ -291,7 +301,7 @@ bảng theo nhóm chất lượng ảnh (clean/noisy) — so sánh các model tr
 
 | Hạng mục | Kết quả |
 |---|---|
-| API | 38 điểm cuối trong 9 router + `/health`; lỗi trả về thống nhất `{error:{code,message,details,trace_id}}` |
+| API | 41 điểm cuối trong 9 router + `/health`; lỗi trả về thống nhất `{error:{code,message,details,trace_id}}` |
 | Nghiệp vụ | Bộ biên dịch dùng 5 mẫu, 14 công cụ, 3 tác tử, thực thi có rẽ nhánh đạt/không đạt, thử lại, huỷ, chạy tiếp sau xác nhận |
 | Dữ liệu | 22 bảng, Alembic 0001 → 0002; API tự nâng cấp lược đồ khi khởi động |
 | Nền | Worker (heartbeat, SIGTERM), lịch cron + theo dõi thư mục, thu hồi việc treo |

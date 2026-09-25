@@ -23,6 +23,18 @@ class LLMResult:
     latency_ms: int
 
 
+@dataclass(frozen=True)
+class LLMConfig:
+    """Thông số kết nối máy chủ mô hình (giao thức tương thích OpenAI).
+
+    api_key rỗng = không gửi header Authorization (vLLM/Ollama nội bộ).
+    """
+
+    base_url: str
+    model: str
+    api_key: str = ""
+
+
 class LLMTimeout(Exception):
     """Máy chủ mô hình không phản hồi trong thời gian cho phép."""
 

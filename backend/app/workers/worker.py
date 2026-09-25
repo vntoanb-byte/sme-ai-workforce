@@ -170,16 +170,18 @@ class Worker:
 
 
 def build_runtime() -> dict[str, Any]:
-    from app.adapters.llm_openai_compatible import OpenAICompatibleLLM
+    from app.adapters.llm_reloading import ReloadingLLM
     from app.adapters.queue_sqlite import SQLiteJobQueue
     from app.adapters.storage_local import LocalFileStorage
     from app.db.session import SessionLocal, engine
+    from app.services import llm_config_service
 
     return {
         "queue": SQLiteJobQueue(engine),
         "session_factory": SessionLocal,
         "storage": LocalFileStorage(settings.STORAGE_PATH),
-        "llm": OpenAICompatibleLLM(),
+        # Cấu hình mô hình đổi trên trang Cài đặt có hiệu lực ở worker trong ≤ 10 giây.
+        "llm": ReloadingLLM(llm_config_service.load, fallback=llm_config_service.env_config()),
     }
 
 

@@ -227,6 +227,31 @@ export interface LlmTestResult {
   error: string | null
 }
 
+/** Nguồn của từng giá trị: trang Cài đặt ('settings') hay tệp .env ('env'). */
+export type LlmSource = 'settings' | 'env'
+
+export interface LlmConfig {
+  base_url: string
+  model: string
+  /** Khoá API không bao giờ được trả về — chỉ biết đã có hay chưa. */
+  api_key_set: boolean
+  sources: { base_url: LlmSource; model: LlmSource; api_key: LlmSource }
+}
+
+/** Khi lưu: bỏ trường = giữ nguyên; chuỗi rỗng = xoá, quay về .env. */
+export interface LlmSettingsInput {
+  base_url?: string
+  model?: string
+  api_key?: string
+}
+
+export interface LlmModelsResult {
+  ok: boolean
+  base_url: string
+  models: string[]
+  error: string | null
+}
+
 // ─────────────────────────── Báo cáo ───────────────────────────
 export interface ReportRow {
   group: string

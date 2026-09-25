@@ -8,6 +8,11 @@
 - `CREDENTIAL_ENC_KEY`: mã hoá (Fernet) các cấu hình khoá `secret.*` lưu trong bảng `settings`;
   API không bao giờ trả giá trị thật (chỉ `••••••`).
 - `LLM_API_KEY` có thể để trống với vLLM nội bộ.
+- Khoá API mô hình nhập trên trang Cài đặt lưu ở `secret.llm_api_key` (mã hoá Fernet); thiếu
+  `CREDENTIAL_ENC_KEY` thì hệ thống từ chối lưu khoá. Mỗi lần đổi cấu hình mô hình ghi `audit_logs`
+  (`settings.llm.update`, không chứa khoá). Chỉ ADMIN xem/sửa; địa chỉ máy chủ chỉ nhận http/https.
+- Trỏ mô hình ra dịch vụ ngoài mạng nội bộ = chứng từ rời khỏi doanh nghiệp — giao diện cảnh báo,
+  quyết định thuộc về quản trị viên/Owner.
 
 ## Personal data
 - Dữ liệu chứng từ (hoá đơn, mã số thuế) chỉ nằm trên máy chủ nội bộ; triển khai `deploy/docker-compose.yml`

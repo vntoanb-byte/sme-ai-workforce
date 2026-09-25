@@ -165,5 +165,25 @@ class OpenAICompatibleLLM:
             raise LLMInvalidOutput("Nội dung JSON hợp lệ nhưng không phải object.")
         return result
 
+    @property
+    def model_name(self) -> str:
+        return self._model
+
+    def list_models(self, timeout: float = 10.0) -> list[str]:
+        """Tên các model máy chủ đang phục vụ (GET /models, chuẩn OpenAI)."""
+        try:
+            resp = self._client.get("/models", timeout=timeout)
+        except httpx.TimeoutException as exc:
+            raise LLMTimeout(f"Máy chủ mô hình không phản hồi: {exc}") from exc
+        except httpx.HTTPError as exc:
+            raise LLMUnavailable(f"Không gọi được máy chủ mô hình: {exc}") from exc
+        if resp.status_code >= 400:
+            raise LLMUnavailable(f"Máy chủ mô hình trả lỗi {resp.status_code}: {resp.text[:300]}")
+        try:
+            items = resp.json().get("data") or []
+            return sorted({str(item["id"]) for item in items if item.get("id")})
+        except (ValueError, AttributeError, TypeError, KeyError) as exc:
+            raise LLMInvalidOutput(f"Danh sách model không đúng định dạng: {exc}") from exc
+
     def close(self) -> None:
         self._client.close()
